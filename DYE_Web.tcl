@@ -5,6 +5,7 @@
 
 package require json
 catch { package require json::write }
+catch { package require zint }
 
 namespace eval ::plugins::DYE_Web {
 	variable author "OpenAI Codex"
@@ -74,16 +75,26 @@ proc ::plugins::DYE_Web::check_settings {} {
 	variable settings
 	variable version
 
-	ifexists settings(version) $version
-	ifexists settings(enabled) 1
-	ifexists settings(bind_address) "0.0.0.0"
-	ifexists settings(port) 8787
-	ifexists settings(require_token) 0
-	ifexists settings(access_token) ""
-	if { $settings(access_token) eq "" } {
-		set settings(access_token) [string range [binary encode hex [encoding convertto utf-8 "[clock clicks]-[pid]"]] 0 15]
+	set_setting_default version $version
+	set_setting_default enabled 1
+	set_setting_default bind_address "0.0.0.0"
+	set_setting_default port 8787
+	set_setting_default require_token 0
+	set_setting_default access_token ""
+	if { [string trim $settings(access_token)] eq "" } {
+		set token [format "%x%x%x" [clock seconds] [pid] [expr {int(rand() * 2147483647)}]]
+		set settings(access_token) [string range $token 0 15]
 	}
 	set settings(version) $version
+}
+
+proc ::plugins::DYE_Web::set_setting_default { name value } {
+	variable settings
+
+	if { ![info exists settings($name)] } {
+		set settings($name) $value
+	}
+	return $settings($name)
 }
 
 proc ::plugins::DYE_Web::ensure_dependencies {} {
@@ -141,6 +152,52 @@ proc ::plugins::DYE_Web::stop_server {} {
 		catch { close $chan }
 	}
 	array unset clients
+}
+
+proc ::plugins::DYE_Web::local_ip {} {
+	variable settings
+
+	set configured [string trim [value_or_default ::plugins::DYE_Web::settings(bind_address) "0.0.0.0"]]
+	if { $configured ni {"" "0.0.0.0" "::"} && ![string match "127.*" $configured] } {
+		return $configured
+	}
+
+	foreach cmd {{getprop dhcp.wlan0.ipaddress} {ip route get 1.1.1.1} {ifconfig wlan0}} {
+		if { ![catch { exec {*}$cmd } ip] } {
+			set ip [string trim $ip]
+			if { [regexp {src ([0-9.]+)} $ip -> parsed] } {
+				set ip $parsed
+			} elseif { [regexp {inet (?:addr:)?([0-9.]+)} $ip -> parsed] } {
+				set ip $parsed
+			}
+			if { [regexp {^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$} $ip] && ![string match "127.*" $ip] } {
+				return $ip
+			}
+		}
+	}
+
+	foreach target {1.1.1.1 8.8.8.8 visualizer.coffee} {
+		if { ![catch {
+			set sock [socket $target 80]
+			set ip [lindex [fconfigure $sock -sockname] 0]
+			close $sock
+			set ip
+		} ip] && $ip ne "" && ![string match "127.*" $ip] } {
+			return $ip
+		}
+	}
+
+	return [info hostname]
+}
+
+proc ::plugins::DYE_Web::web_url {} {
+	variable settings
+
+	set url "http://[local_ip]:$settings(port)/"
+	if { [string is true $settings(require_token)] } {
+		append url "?token=$settings(access_token)"
+	}
+	return $url
 }
 
 proc ::plugins::DYE_Web::accept { chan addr port } {
@@ -961,31 +1018,61 @@ proc ::plugins::DYE_Web::json_nullable_number { value } {
 namespace eval ::dui::pages::DYE_Web_settings {
 	variable widgets
 	array set widgets {}
+	variable qr_img
+	variable url_text ""
+	variable qr_status_text ""
 
 	proc setup {} {
 		set page [namespace tail [namespace current]]
 		dui add dtext $page 180 180 -tags title -text "DYE Web" -font Helv_10_bold -fill "#333333"
-		dui add dtext $page 180 300 -tags url -textvariable ::dui::pages::DYE_Web_settings::url_text -font Helv_8 -fill "#444444" -width 1800
+		dui add dtext $page 180 300 -tags url -textvariable ::dui::pages::DYE_Web_settings::url_text -font Helv_8 -fill "#444444" -width 1500
 		dui add entry $page 180 480 -tags port -textvariable ::plugins::DYE_Web::settings(port) -width 8 \
 			-label "Port" -label_pos {180 420} -label_font Helv_7 -label_fill "#444444"
 		dui add entry $page 180 660 -tags token -textvariable ::plugins::DYE_Web::settings(access_token) -width 32 \
 			-label "Access token" -label_pos {180 600} -label_font Helv_7 -label_fill "#444444"
 		dui add dcheckbox $page 180 800 -tags require_token -textvariable ::plugins::DYE_Web::settings(require_token) \
-			-label "Require token for API access"
+			-label "Require token for API access" -command ::dui::pages::DYE_Web_settings::update_url_qr
 		dui add dbutton $page 180 980 -tags restart -label "Restart web server" -style insight_ok \
 			-command ::dui::pages::DYE_Web_settings::restart
 		dui add dbutton $page 180 1160 -tags done -label "Done" -style insight_ok \
 			-command ::dui::pages::DYE_Web_settings::page_done
+
+		image create photo [namespace current]::qr_img -width [dui::platform::rescale_x 900] \
+			-height [dui::platform::rescale_y 900]
+		dui add image $page 1880 730 {} -tags qr
+		dui item config $page qr -image [namespace current]::qr_img
+		dui add dtext $page 1530 1260 -tags qr_status -textvariable ::dui::pages::DYE_Web_settings::qr_status_text \
+			-font Helv_7 -fill "#666666" -width 820 -justify center
 	}
 
 	proc load { page_to_hide page_to_show args } {
+		update_url_qr
+	}
+
+	proc update_url_qr {} {
 		variable url_text
-		set url_text "Open http://<tablet-ip>:$::plugins::DYE_Web::settings(port)/ from your phone on the same Wi-Fi."
+		variable qr_status_text
+
+		set url_text "Open [::plugins::DYE_Web::web_url] from your phone on the same Wi-Fi."
+		if { [catch { package present zint } err] } {
+			[namespace current]::qr_img blank
+			set qr_status_text "QR requires the zint package; use the URL on the left."
+			return
+		}
+		if { [catch {
+			zint encode [::plugins::DYE_Web::web_url] [namespace current]::qr_img -barcode QR -scale 2.4
+		} err] } {
+			[namespace current]::qr_img blank
+			set qr_status_text "Could not generate QR; use the URL on the left."
+			return
+		}
+		set qr_status_text "Scan to open DYE Web"
 	}
 
 	proc restart {} {
 		plugins save_settings DYE_Web
 		::plugins::DYE_Web::start_server
+		update_url_qr
 		popup [translate_toast "DYE Web restarted"]
 	}
 

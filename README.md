@@ -21,13 +21,28 @@ de1plus/plugins/DYE_Web
 
 Then enable `SDB`, `DYE`, and `DYE_Web` from `Settings > App > Extensions`.
 
+If you use `adb` over USB, copy only the plugin files like this:
+
+```sh
+adb shell mkdir -p /sdcard/de1plus/plugins/DYE_Web
+adb push plugin.tcl DYE_Web.tcl README.md web /sdcard/de1plus/plugins/DYE_Web/
+```
+
+If you are copying on the tablet with a file manager, create:
+
+```text
+/sdcard/de1plus/plugins/DYE_Web
+```
+
+and place `plugin.tcl`, `DYE_Web.tcl`, `README.md`, and the `web` folder inside it.
+
 By default the plugin listens on:
 
 ```text
 http://<tablet-ip>:8787/
 ```
 
-The settings page lets you change the port, restart the server, and optionally require an API token.
+The settings page shows the phone URL and a QR code, lets you change the port, restart the server, and optionally require an API token.
 
 ## Notes
 

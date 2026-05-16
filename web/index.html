@@ -30,6 +30,17 @@
         </label>
       </section>
 
+      <section class="filter-bar" aria-label="Shot filters">
+        <div class="filter-chips" id="filterChips"></div>
+        <div class="saved-view-controls">
+          <select id="savedViews" aria-label="Saved views">
+            <option value="">Saved views</option>
+          </select>
+          <button id="saveViewButton" class="secondary-button compact-button" type="button">Save view</button>
+          <button id="deleteViewButton" class="secondary-button compact-button" type="button" disabled>Delete</button>
+        </div>
+      </section>
+
       <main class="workspace">
         <section class="shot-list-panel" aria-label="Shot history">
           <div class="list-meta">
@@ -48,6 +59,9 @@
               <p id="selectedSubtitle" class="subtitle">Your saved Decent espresso shots will appear here.</p>
             </div>
             <div class="detail-actions">
+              <button id="referenceButton" class="secondary-button compact-button" type="button" disabled>Reference</button>
+              <button id="repeatButton" class="secondary-button compact-button" type="button" disabled>Repeat</button>
+              <button id="profileButton" class="secondary-button compact-button" type="button" disabled>Load profile</button>
               <button id="editButton" class="primary-button" type="button" disabled>Saved</button>
             </div>
           </div>

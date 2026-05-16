@@ -30,6 +30,7 @@ namespace eval ::plugins::DYE_Web {
 		port 8787 \
 		require_token 0 \
 		access_token "" \
+		reference_shots "" \
 	] {
 		if { ![info exists settings($setting_name)] } {
 			set settings($setting_name) $setting_default
@@ -94,6 +95,7 @@ proc ::plugins::DYE_Web::check_settings {} {
 	set_setting_default port 8787
 	set_setting_default require_token 0
 	set_setting_default access_token ""
+	set_setting_default reference_shots ""
 	if { [string trim $settings(access_token)] eq "" } {
 		set token [format "%x%x%x" [clock seconds] [pid] [expr {int(rand() * 2147483647)}]]
 		set settings(access_token) [string range $token 0 15]
@@ -371,6 +373,18 @@ proc ::plugins::DYE_Web::handle_api { chan request } {
 		send_json $chan 200 [api_sync_visualizer_shot $clock [dict get $request body]]
 		return
 	}
+	if { [regexp {^/api/shots/([0-9]+)/reference$} $path -> clock] && $method in {POST PATCH} } {
+		send_json $chan 200 [api_reference_shot $clock [dict get $request body]]
+		return
+	}
+	if { [regexp {^/api/shots/([0-9]+)/repeat$} $path -> clock] && $method eq "POST" } {
+		send_json $chan 200 [api_repeat_shot $clock]
+		return
+	}
+	if { [regexp {^/api/shots/([0-9]+)/profile$} $path -> clock] && $method eq "POST" } {
+		send_json $chan 200 [api_load_shot_profile $clock]
+		return
+	}
 	if { [regexp {^/api/shots/([0-9]+)$} $path -> clock] } {
 		if { $method eq "GET" } {
 			send_json $chan 200 [api_shot_detail $clock]
@@ -495,6 +509,13 @@ proc ::plugins::DYE_Web::api_shots { query } {
 			lappend where "([join $search_cols { OR }])"
 		}
 	}
+	if { [dict exists $query reference] && [string is true [dict get $query reference]] } {
+		set clocks [reference_clocks]
+		if { [llength $clocks] == 0 } {
+			return [json_object [list ok [json_bool 1] shots [json_array_raw {}]]]
+		}
+		lappend where "clock IN ([join $clocks ,])"
+	}
 
 	set sql "SELECT [join $columns ,] FROM V_shot WHERE [join $where { AND }] ORDER BY clock DESC LIMIT $limit"
 	set shots {}
@@ -572,6 +593,79 @@ proc ::plugins::DYE_Web::api_update_shot { clock body } {
 	}
 
 	return [api_shot_detail $clock]
+}
+
+proc ::plugins::DYE_Web::api_reference_shot { clock body } {
+	set payload [parse_json_body $body]
+	set current [reference_has_clock $clock]
+	if { [dict exists $payload reference] } {
+		set make_reference [string is true [dict get $payload reference]]
+	} else {
+		set make_reference [expr {!$current}]
+	}
+	set_reference_clock $clock $make_reference
+	return [json_object [list \
+		ok [json_bool 1] \
+		clock [json_number $clock] \
+		reference [json_bool $make_reference] \
+	]]
+}
+
+proc ::plugins::DYE_Web::api_repeat_shot { clock } {
+	if { [namespace which -command ::plugins::DYE::shots::source_next_from] eq "" } {
+		error "DYE is not loaded; repeat is unavailable"
+	}
+	set what_to_copy {
+		profile bean_brand bean_type roast_level roast_date bean_notes
+		grinder_model grinder_setting grinder_dose_weight drink_weight my_name drinker_name
+	}
+	set ok [::plugins::DYE::shots::source_next_from $clock {} $what_to_copy]
+	if { ![string is true $ok] } {
+		error "Could not copy shot $clock to Next Shot"
+	}
+	foreach field {espresso_notes espresso_enjoyment drink_tds drink_ey} {
+		if { [info exists ::plugins::DYE::settings(next_$field)] } {
+			set ::plugins::DYE::settings(next_$field) ""
+		}
+	}
+	set ::plugins::DYE::settings(next_modified) 1
+	catch { ::plugins::DYE::shots::define_next_desc }
+	catch { plugins save_settings DYE }
+	catch { ::save_settings }
+	return [json_object [list ok [json_bool 1] message [json_string "Shot copied to Next Shot"] next [api_next]]]
+}
+
+proc ::plugins::DYE_Web::api_load_shot_profile { clock } {
+	array set shot {}
+	if { ![catch { ::plugins::SDB::load_shot $clock 1 1 1 1 } shot_list] && $shot_list ne "" } {
+		array set shot $shot_list
+	}
+	if { [array size shot] == 0 } {
+		error "Shot $clock was not found"
+	}
+	if { [namespace which -command ::profile::import_legacy] eq "" } {
+		error "Profile loading is unavailable in this DE1app build"
+	}
+	set imported [::profile::import_legacy [array get shot]]
+	if { ![string is true $imported] } {
+		if { [info exists shot(profile_filename)] && $shot(profile_filename) ne "" &&
+				[namespace which -command ::select_profile] ne "" } {
+			::select_profile $shot(profile_filename)
+			set imported 1
+		}
+	}
+	if { ![string is true $imported] } {
+		error "Could not load the profile from shot $clock"
+	}
+	catch { ::save_settings }
+	set title [expr {[info exists shot(profile_title)] ? $shot(profile_title) : ""}]
+	set filename [expr {[info exists shot(profile_filename)] ? $shot(profile_filename) : ""}]
+	return [json_object [list \
+		ok [json_bool 1] \
+		message [json_string "Profile loaded"] \
+		profile_title [json_string $title] \
+		profile_filename [json_string $filename] \
+	]]
 }
 
 proc ::plugins::DYE_Web::api_sync_visualizer_shot { clock body } {
@@ -953,6 +1047,40 @@ proc ::plugins::DYE_Web::parse_json_body { body } {
 	return $payload
 }
 
+proc ::plugins::DYE_Web::reference_clocks {} {
+	variable settings
+	set clocks {}
+	foreach clock $settings(reference_shots) {
+		if { [string is integer -strict $clock] && $clock > 0 && $clock ni $clocks } {
+			lappend clocks $clock
+		}
+	}
+	return $clocks
+}
+
+proc ::plugins::DYE_Web::reference_has_clock { clock } {
+	return [expr {$clock in [reference_clocks]}]
+}
+
+proc ::plugins::DYE_Web::set_reference_clock { clock make_reference } {
+	variable settings
+	set clocks [reference_clocks]
+	if { [string is true $make_reference] } {
+		if { $clock ni $clocks } {
+			lappend clocks $clock
+		}
+	} else {
+		set idx [lsearch -exact $clocks $clock]
+		while { $idx >= 0 } {
+			set clocks [lreplace $clocks $idx $idx]
+			set idx [lsearch -exact $clocks $clock]
+		}
+	}
+	set settings(reference_shots) $clocks
+	plugins save_settings DYE_Web
+	return $clocks
+}
+
 proc ::plugins::DYE_Web::shot_from_db { clock } {
 	variable desired_shot_columns
 	set db [::plugins::SDB::get_db]
@@ -989,6 +1117,7 @@ proc ::plugins::DYE_Web::shot_row_json { row_var columns } {
 		set ratio [format %.2f [expr {$row(drink_weight) / double($row(grinder_dose_weight))}]]
 	}
 	lappend pairs ratio [json_nullable_number $ratio]
+	lappend pairs reference [json_bool [reference_has_clock $row(clock)]]
 	lappend pairs iso_time [json_string [clock format $row(clock) -format {%Y-%m-%dT%H:%M:%S%z}]]
 	return [json_object $pairs]
 }
@@ -997,6 +1126,7 @@ proc ::plugins::DYE_Web::shot_detail_json { shot_var } {
 	upvar $shot_var shot
 	set columns {
 		kind clock filename path rel_path date_time local_time shot_desc profile_title
+		profile_filename
 		grinder_dose_weight drink_weight target_drink_weight extraction_time
 		bean_brand bean_type bean_desc bean_notes roast_date roast_level
 		grinder_model grinder_setting drink_tds drink_ey espresso_enjoyment espresso_notes
@@ -1013,6 +1143,7 @@ proc ::plugins::DYE_Web::shot_detail_json { shot_var } {
 	}
 	if { [info exists shot(clock)] && [string is integer -strict $shot(clock)] && $shot(clock) > 0 } {
 		lappend pairs iso_time [json_string [clock format $shot(clock) -format {%Y-%m-%dT%H:%M:%S%z}]]
+		lappend pairs reference [json_bool [reference_has_clock $shot(clock)]]
 	}
 	return [json_object $pairs]
 }

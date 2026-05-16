@@ -208,6 +208,19 @@ h3 {
   font-weight: 680;
 }
 
+.compact-button {
+  min-height: 38px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.secondary-button.active,
+.filter-chip.active {
+  border-color: var(--teal);
+  background: rgba(8, 127, 140, 0.1);
+  color: var(--teal-dark);
+}
+
 .controls {
   display: grid;
   grid-template-columns: minmax(220px, 320px) 1fr;
@@ -264,6 +277,53 @@ h3 {
 .search-wrap input:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 3px rgba(8, 127, 140, 0.16);
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 14px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filter-chip {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 0 12px;
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.filter-chip:disabled {
+  opacity: 0.45;
+}
+
+.saved-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.saved-view-controls select {
+  min-height: 38px;
+  min-width: 132px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 10px;
 }
 
 .workspace {
@@ -334,10 +394,19 @@ h3 {
 }
 
 .shot-card-subtitle,
+.shot-card-note,
 .shot-card-meta {
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.25;
+}
+
+.shot-card-note {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .shot-card-meta {
@@ -356,6 +425,11 @@ h3 {
   padding: 0 8px;
   font-size: 0.76rem;
   font-weight: 760;
+}
+
+.reference-pill {
+  background: rgba(8, 127, 140, 0.1);
+  color: var(--teal-dark);
 }
 
 .detail-panel {
@@ -632,13 +706,25 @@ h3 {
   }
 
   .controls,
+  .filter-bar,
   .workspace {
     grid-template-columns: 1fr;
     width: 100%;
     max-width: calc(100vw - 20px);
   }
 
+  .filter-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .saved-view-controls {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
   body.mobile-detail-view .search-wrap,
+  body.mobile-detail-view .filter-bar,
   body.mobile-detail-view .shot-list-panel,
   body.mobile-list-view .detail-panel {
     display: none;
@@ -683,6 +769,7 @@ h3 {
 
   .detail-actions {
     display: flex;
+    flex-wrap: wrap;
   }
 
   body.mobile-detail-view .mobile-back-button {
@@ -692,7 +779,7 @@ h3 {
   }
 
   .shot-hero .primary-button {
-    width: 100%;
+    flex: 1 1 140px;
   }
 
   .shot-title-block,

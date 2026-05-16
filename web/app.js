@@ -6,9 +6,14 @@ const API = {
   shots: `${API_BASE}/api/shots`,
   next: `${API_BASE}/api/next`,
   shot: (clock) => `${API_BASE}/api/shots/${clock}`,
+  reference: (clock) => `${API_BASE}/api/shots/${clock}/reference`,
+  repeat: (clock) => `${API_BASE}/api/shots/${clock}/repeat`,
+  profile: (clock) => `${API_BASE}/api/shots/${clock}/profile`,
   visualizer: (clock) => `${API_BASE}/api/shots/${clock}/visualizer`,
   values: (field) => `${API_BASE}/api/fields/${encodeURIComponent(field)}/values`,
 };
+
+const SAVED_VIEWS_KEY = "dyeWebSavedViews";
 
 const DEFAULT_SCHEMA = [
   { key: "bean_brand", name: "Beans roaster", short_name: "Roaster", section: "beans", data_type: "category" },
@@ -80,12 +85,15 @@ const DEMO_SERIES = {
 const state = {
   mode: "history",
   schema: DEFAULT_SCHEMA,
+  allShots: [],
   shots: [],
   selectedClock: null,
   selectedDetail: null,
   categoryValues: new Map(),
   originalValues: new Map(),
   dirtyValues: new Map(),
+  filters: new Set(),
+  savedViews: [],
   visualizerStatus: "",
   saving: false,
   mobileView: "list",
@@ -97,6 +105,10 @@ const els = {
   historyTab: document.querySelector("#historyTab"),
   nextTab: document.querySelector("#nextTab"),
   searchInput: document.querySelector("#searchInput"),
+  filterChips: document.querySelector("#filterChips"),
+  savedViews: document.querySelector("#savedViews"),
+  saveViewButton: document.querySelector("#saveViewButton"),
+  deleteViewButton: document.querySelector("#deleteViewButton"),
   shotCount: document.querySelector("#shotCount"),
   connectionState: document.querySelector("#connectionState"),
   shotList: document.querySelector("#shotList"),
@@ -108,6 +120,9 @@ const els = {
   shotChart: document.querySelector("#shotChart"),
   chartLegend: document.querySelector("#chartLegend"),
   backToShotsButton: document.querySelector("#backToShotsButton"),
+  referenceButton: document.querySelector("#referenceButton"),
+  repeatButton: document.querySelector("#repeatButton"),
+  profileButton: document.querySelector("#profileButton"),
   editButton: document.querySelector("#editButton"),
   floatingSaveButton: document.querySelector("#floatingSaveButton"),
   floatingSaveCount: document.querySelector("#floatingSaveCount"),
@@ -255,6 +270,7 @@ function setModeChrome(mode) {
   els.historyTab.setAttribute("aria-selected", mode === "history" ? "true" : "false");
   els.nextTab.setAttribute("aria-selected", mode === "next" ? "true" : "false");
   els.searchInput.disabled = mode !== "history";
+  renderFilterChips();
 }
 
 function setMobileView(view, options = {}) {
@@ -307,6 +323,9 @@ async function applyRoute(options = {}) {
 
 async function loadApp() {
   window.history.replaceState(routeFromUrl(), "", window.location.href);
+  state.savedViews = loadSavedViews();
+  renderSavedViews();
+  renderFilterChips();
   applyResponsiveView();
   try {
     const [status, schema] = await Promise.all([fetchJson(API.status), fetchJson(API.schema)]);
@@ -338,9 +357,10 @@ async function loadShots() {
   }
   if (state.demo) {
     const needle = els.searchInput.value.trim().toLowerCase();
-    state.shots = needle
+    state.allShots = needle
       ? DEMO_SHOTS.filter((shot) => JSON.stringify(shot).toLowerCase().includes(needle))
       : DEMO_SHOTS;
+    state.shots = applyShotFilters(state.allShots.map(normalizeShot));
     renderShotList();
     const route = routeFromUrl();
     if (state.shots.length && route.shot) {
@@ -356,7 +376,8 @@ async function loadShots() {
   const search = els.searchInput.value.trim();
   if (search) params.set("search", search);
   const data = await fetchJson(`${API.shots}?${params}`);
-  state.shots = (data.shots || []).map(normalizeShot);
+  state.allShots = (data.shots || []).map(normalizeShot);
+  state.shots = applyShotFilters(state.allShots);
   renderShotList();
   if (state.shots.length) {
     const route = routeFromUrl();
@@ -387,7 +408,8 @@ async function loadNext() {
 }
 
 function renderShotList() {
-  els.shotCount.textContent = `${state.shots.length} shot${state.shots.length === 1 ? "" : "s"}`;
+  const filtered = state.shots.length !== state.allShots.length && state.mode === "history";
+  els.shotCount.textContent = `${state.shots.length} shot${state.shots.length === 1 ? "" : "s"}${filtered ? ` of ${state.allShots.length}` : ""}`;
   els.shotList.innerHTML = "";
   if (!state.shots.length) {
     els.shotList.innerHTML = `<div class="empty-state">No shots found</div>`;
@@ -395,13 +417,16 @@ function renderShotList() {
   }
   const fragment = document.createDocumentFragment();
   for (const shot of state.shots) {
+    const note = cleanValue(shot.espresso_notes);
     const button = document.createElement("button");
     button.type = "button";
     button.className = `shot-card ${String(shot.clock) === String(state.selectedClock) ? "active" : ""}`;
     button.innerHTML = `
       <div class="shot-card-title">${escapeHtml(shotTitle(shot))}</div>
       <div class="shot-card-subtitle">${escapeHtml(shotSubtitle(shot))}</div>
+      ${note ? `<div class="shot-card-note">${escapeHtml(note)}</div>` : ""}
       <div class="shot-card-meta">
+        ${shot.reference ? `<span class="pill reference-pill">Reference</span>` : ""}
         <span class="pill">${escapeHtml(metricText(shot))}</span>
         ${shot.grinder_setting ? `<span class="pill">${escapeHtml(shot.grinder_setting)} grind</span>` : ""}
         ${shot.espresso_enjoyment ? `<span class="pill">${escapeHtml(fmt(shot.espresso_enjoyment, 0))}/100</span>` : ""}
@@ -411,6 +436,131 @@ function renderShotList() {
     fragment.append(button);
   }
   els.shotList.append(fragment);
+}
+
+function filterDefinitions() {
+  const selected = state.selectedDetail?.shot || {};
+  const bean = [selected.bean_brand, selected.bean_type].map(cleanValue).filter(Boolean).join(" ");
+  const profile = cleanValue(selected.profile_title);
+  return [
+    { id: "reference", label: "Reference" },
+    { id: "notes", label: "Has notes" },
+    { id: "rated", label: "Rated" },
+    { id: "recent30", label: "Last 30d" },
+    { id: "sameBean", label: bean ? "This bean" : "This bean", disabled: !bean },
+    { id: "sameProfile", label: profile ? "This profile" : "This profile", disabled: !profile },
+  ];
+}
+
+function renderFilterChips() {
+  if (!els.filterChips) return;
+  els.filterChips.innerHTML = "";
+  for (const filter of filterDefinitions()) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `filter-chip ${state.filters.has(filter.id) ? "active" : ""}`;
+    button.textContent = filter.label;
+    button.disabled = Boolean(filter.disabled) || state.mode !== "history";
+    button.addEventListener("click", () => {
+      if (state.filters.has(filter.id)) state.filters.delete(filter.id);
+      else state.filters.add(filter.id);
+      applyFiltersAndRender();
+    });
+    els.filterChips.append(button);
+  }
+}
+
+function applyFiltersAndRender() {
+  state.shots = applyShotFilters(state.allShots);
+  renderShotList();
+  renderSavedViews();
+  if (state.mode === "history" && state.selectedClock && !state.shots.some((shot) => String(shot.clock) === String(state.selectedClock))) {
+    renderEmptyDetail();
+  }
+}
+
+function applyShotFilters(shots) {
+  const active = [...state.filters];
+  if (!active.length) return shots;
+  return shots.filter((shot) => active.every((filter) => shotMatchesFilter(shot, filter)));
+}
+
+function shotMatchesFilter(shot, filter) {
+  const selected = state.selectedDetail?.shot || {};
+  if (filter === "reference") return Boolean(shot.reference);
+  if (filter === "notes") return Boolean(cleanValue(shot.espresso_notes));
+  if (filter === "rated") return Number(cleanValue(shot.espresso_enjoyment)) > 0;
+  if (filter === "recent30") return Number(shot.clock) >= (Date.now() / 1000) - 30 * 86400;
+  if (filter === "sameBean") {
+    const bean = [selected.bean_brand, selected.bean_type].map(cleanValue).join("|");
+    return bean !== "|" && bean === [shot.bean_brand, shot.bean_type].map(cleanValue).join("|");
+  }
+  if (filter === "sameProfile") {
+    const profile = cleanValue(selected.profile_title);
+    return profile && profile === cleanValue(shot.profile_title);
+  }
+  return true;
+}
+
+function loadSavedViews() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((view) => view && view.name) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeSavedViews() {
+  localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(state.savedViews));
+}
+
+function renderSavedViews() {
+  if (!els.savedViews) return;
+  const current = els.savedViews.value;
+  els.savedViews.innerHTML = `<option value="">Saved views</option>`;
+  state.savedViews.forEach((view, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = view.name;
+    els.savedViews.append(option);
+  });
+  if (current && state.savedViews[Number(current)]) els.savedViews.value = current;
+  els.deleteViewButton.disabled = !els.savedViews.value;
+}
+
+function saveCurrentView() {
+  const name = window.prompt("Name this view", "");
+  if (!name || !name.trim()) return;
+  const view = {
+    name: name.trim(),
+    search: els.searchInput.value.trim(),
+    filters: [...state.filters],
+  };
+  const existing = state.savedViews.findIndex((item) => item.name.toLowerCase() === view.name.toLowerCase());
+  if (existing >= 0) state.savedViews[existing] = view;
+  else state.savedViews.push(view);
+  storeSavedViews();
+  renderSavedViews();
+}
+
+function applySavedView(index) {
+  const view = state.savedViews[Number(index)];
+  if (!view) return;
+  els.searchInput.value = view.search || "";
+  state.filters = new Set(view.filters || []);
+  renderFilterChips();
+  loadShots().catch((error) => {
+    els.connectionState.textContent = error.message;
+  });
+}
+
+function deleteSavedView() {
+  const index = Number(els.savedViews.value);
+  if (!Number.isInteger(index) || !state.savedViews[index]) return;
+  state.savedViews.splice(index, 1);
+  storeSavedViews();
+  renderSavedViews();
 }
 
 async function selectShot(clock, options = {}) {
@@ -447,6 +597,8 @@ function renderEmptyDetail() {
   els.selectedSubtitle.textContent = "No matching shots were found.";
   els.metricsStrip.innerHTML = "";
   els.metadataGrid.innerHTML = "";
+  renderDetailActions({});
+  renderFilterChips();
   clearChart();
 }
 
@@ -458,9 +610,20 @@ function renderDetail(data) {
     : shot.iso_time ? new Date(shot.iso_time).toLocaleString([], { dateStyle: "full", timeStyle: "short" }) : "Shot";
   els.selectedTitle.textContent = shotTitle(shot);
   els.selectedSubtitle.textContent = shot.kind === "next" ? "Plan and description values for the next espresso." : metricText(shot);
+  renderDetailActions(shot);
+  renderFilterChips();
   renderMetrics(shot);
   renderMetadata(fields);
   drawChart(data.series || {});
+}
+
+function renderDetailActions(shot) {
+  const historyShot = state.mode === "history" && shot.kind !== "next" && shot.clock;
+  els.referenceButton.disabled = !historyShot;
+  els.repeatButton.disabled = !historyShot;
+  els.profileButton.disabled = !historyShot || !(shot.profile_title || shot.profile_filename);
+  els.referenceButton.classList.toggle("active", Boolean(shot.reference));
+  els.referenceButton.textContent = shot.reference ? "Reference on" : "Reference";
 }
 
 function renderMetrics(shot) {
@@ -503,6 +666,10 @@ function normalizeFields(fields) {
       field.name = "Visualizer";
       field.short_name = "Visualizer";
       field.section = "links";
+    } else if (field.key === "espresso_notes") {
+      field.name = "Shot note";
+      field.short_name = "Note";
+      field.section = "notes";
     }
   }
   return normalized;
@@ -730,7 +897,7 @@ function updateSaveButton() {
 }
 
 function groupFields(fields) {
-  const order = ["links", "beans", "equipment", "extraction", "tasting", "people", "beverage", "description"];
+  const order = ["notes", "links", "beans", "equipment", "extraction", "tasting", "people", "beverage", "description"];
   const map = new Map();
   for (const field of fields) {
     const section = cleanValue(field.section) || "description";
@@ -754,6 +921,7 @@ function sectionLabel(section) {
     people: "People",
     beverage: "Beverage",
     links: "Links",
+    notes: "Notes",
     description: "Description",
   };
   return labels[cleaned] || cleaned.replace(/_/g, " ");
@@ -1014,6 +1182,40 @@ async function syncVisualizerEdits(fields) {
   updateVisualizerStatus();
 }
 
+async function toggleReference() {
+  if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
+  const shot = state.selectedDetail.shot;
+  els.referenceButton.disabled = true;
+  const data = await fetchJson(API.reference(shot.clock), {
+    method: "PATCH",
+    body: JSON.stringify({ reference: !shot.reference }),
+  });
+  shot.reference = Boolean(data.reference);
+  const update = (item) => {
+    if (String(item.clock) === String(shot.clock)) item.reference = shot.reference;
+  };
+  state.allShots.forEach(update);
+  state.shots.forEach(update);
+  renderDetailActions(shot);
+  applyFiltersAndRender();
+}
+
+async function repeatSelectedShot() {
+  if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
+  els.repeatButton.disabled = true;
+  const data = await fetchJson(API.repeat(state.selectedDetail.shot.clock), { method: "POST" });
+  els.connectionState.textContent = data.message || "Copied to Next Shot";
+  els.repeatButton.disabled = false;
+}
+
+async function loadSelectedProfile() {
+  if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
+  els.profileButton.disabled = true;
+  const data = await fetchJson(API.profile(state.selectedDetail.shot.clock), { method: "POST" });
+  els.connectionState.textContent = data.profile_title ? `Loaded ${data.profile_title}` : (data.message || "Profile loaded");
+  els.profileButton.disabled = false;
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -1059,6 +1261,12 @@ els.searchInput.addEventListener("input", () => {
     els.connectionState.textContent = error.message;
   }), 180);
 });
+els.savedViews.addEventListener("change", () => {
+  els.deleteViewButton.disabled = !els.savedViews.value;
+  if (els.savedViews.value) applySavedView(els.savedViews.value);
+});
+els.saveViewButton.addEventListener("click", saveCurrentView);
+els.deleteViewButton.addEventListener("click", deleteSavedView);
 els.refreshButton.addEventListener("click", () => loadShots().catch((error) => {
   els.connectionState.textContent = error.message;
 }));
@@ -1068,6 +1276,18 @@ els.backToShotsButton.addEventListener("click", () => {
   writeRoute({ shot: null, view: null }, { replace: true });
   setMobileView("list");
 });
+els.referenceButton.addEventListener("click", () => toggleReference().catch((error) => {
+  els.connectionState.textContent = error.message;
+  renderDetailActions(state.selectedDetail?.shot || {});
+}));
+els.repeatButton.addEventListener("click", () => repeatSelectedShot().catch((error) => {
+  els.connectionState.textContent = error.message;
+  renderDetailActions(state.selectedDetail?.shot || {});
+}));
+els.profileButton.addEventListener("click", () => loadSelectedProfile().catch((error) => {
+  els.connectionState.textContent = error.message;
+  renderDetailActions(state.selectedDetail?.shot || {});
+}));
 els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) => {
   els.connectionState.textContent = error.message;
   state.saving = false;

@@ -66,8 +66,13 @@ proc ::plugins::DYE_Web::msg { args } {
 }
 
 proc ::plugins::DYE_Web::preload {} {
+	catch { package require de1_dui 1.0 }
 	check_settings
 	plugins save_settings DYE_Web
+	if { [info commands dui] ne "" } {
+		dui page add DYE_Web_settings -namespace true -theme default -type fpdialog
+		return DYE_Web_settings
+	}
 	return ""
 }
 
@@ -217,6 +222,81 @@ proc ::plugins::DYE_Web::web_url {} {
 	return $url
 }
 
+namespace eval ::dui::pages::DYE_Web_settings {
+	variable data
+	array set data {
+		web_url ""
+		status_msg ""
+	}
+	variable qr_image "::dui::pages::DYE_Web_settings::qr_img"
+}
+
+proc ::dui::pages::DYE_Web_settings::setup {} {
+	variable qr_image
+	set page [namespace tail [namespace current]]
+
+	dui add dtext $page 1280 100 -tags page_title -text [translate "DYE Web Settings"] -style page_title
+	dui add canvas_item rect $page 10 190 2550 1430 -fill "#ededfa" -width 0
+	dui add canvas_item line $page 14 188 2552 189 -fill "#c7c9d5" -width 2
+	dui add canvas_item line $page 2551 188 2552 1426 -fill "#c7c9d5" -width 2
+	dui add canvas_item rect $page 80 250 2480 1285 -fill white -width 0
+
+	dui add dtext $page 1280 325 -anchor center -justify center -width 2200 \
+		-text [translate "Open DYE Web from a phone on the same Wi-Fi network."]
+	dui add dtext $page 1280 465 -anchor center -justify center -width 2200 -tags web_url \
+		-text "" -font_size +4 -fill "#055d66"
+	dui add dtext $page 1280 555 -anchor center -justify center -width 2200 -tags status_msg \
+		-text "" -font_size -1 -fill "#65727a"
+
+	catch { image delete $qr_image }
+	if { ![catch { image create photo $qr_image -width [dui::platform::rescale_x 1100] -height [dui::platform::rescale_y 1100] }] } {
+		dui add image $page 1280 910 {} -tags qr
+		dui item config $page qr -image $qr_image
+	}
+
+	dui add dbutton $page 1035 1460 -tags page_done -style insight_ok -command page_done -label [translate Ok]
+}
+
+proc ::dui::pages::DYE_Web_settings::load { page_to_hide page_to_show args } {
+	return 1
+}
+
+proc ::dui::pages::DYE_Web_settings::show { page_to_hide page_to_show } {
+	variable data
+
+	set data(web_url) [::plugins::DYE_Web::web_url]
+	set data(status_msg) [translate "Scan the QR code, or type this address into your phone browser."]
+	update_qr
+	render
+}
+
+proc ::dui::pages::DYE_Web_settings::page_done {} {
+	dui page close_dialog
+}
+
+proc ::dui::pages::DYE_Web_settings::render {} {
+	variable data
+	set page [namespace tail [namespace current]]
+
+	dui item config $page web_url -text $data(web_url)
+	dui item config $page status_msg -text $data(status_msg)
+}
+
+proc ::dui::pages::DYE_Web_settings::update_qr {} {
+	variable data
+	variable qr_image
+
+	if { [lsearch -exact [image names] $qr_image] < 0 } return
+	catch { $qr_image blank }
+	if { [catch { package present zint }] } {
+		set data(status_msg) [translate "QR support is not available on this tablet. Type the address above into your phone browser."]
+		return
+	}
+	if { [catch { zint encode $data(web_url) $qr_image -barcode QR -scale 2.5 } err] } {
+		set data(status_msg) [translate "Could not draw QR code. Type the address above into your phone browser."]
+	}
+}
+
 proc ::plugins::DYE_Web::accept { chan addr port } {
 	variable clients
 
@@ -357,10 +437,6 @@ proc ::plugins::DYE_Web::handle_api { chan request } {
 	set method [dict get $request method]
 	set path [string trimright [dict get $request path] "/"]
 
-	if { $path eq "/api/status" && $method eq "GET" } {
-		send_json $chan 200 [api_status]
-		return
-	}
 	if { $path eq "/api/schema" && $method eq "GET" } {
 		send_json $chan 200 [api_schema]
 		return
@@ -438,32 +514,6 @@ proc ::plugins::DYE_Web::serve_static { chan path } {
 	set bytes [read $fh]
 	close $fh
 	send_response $chan 200 "OK" [mime_type $file_path] $bytes 1
-}
-
-proc ::plugins::DYE_Web::api_status {} {
-	variable settings
-	variable version
-
-	check_settings
-	set sdb_ok [expr {[namespace which -command ::plugins::SDB::get_db] ne ""}]
-	set dye_ok [expr {[namespace exists ::plugins::DYE] && [namespace which -command ::plugins::DYE::shots::get_next] ne ""}]
-	set count 0
-	catch {
-		set db [::plugins::SDB::get_db]
-		set count [db eval {SELECT COUNT(clock) FROM V_shot WHERE removed=0}]
-	}
-
-	return [json_object [list \
-		ok [json_bool 1] \
-		name [json_string $::plugins::DYE_Web::name] \
-		version [json_string $version] \
-		sdb [json_bool $sdb_ok] \
-		dye [json_bool $dye_ok] \
-		shots [json_number $count] \
-		port [json_number $settings(port)] \
-		bind_address [json_string $settings(bind_address)] \
-		require_token [json_bool $settings(require_token)] \
-	]]
 }
 
 proc ::plugins::DYE_Web::api_schema {} {

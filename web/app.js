@@ -1,7 +1,6 @@
 const API_BASE = new URLSearchParams(window.location.search).get("api")?.replace(/\/$/, "") || "";
 
 const API = {
-  status: `${API_BASE}/api/status`,
   schema: `${API_BASE}/api/schema`,
   shots: `${API_BASE}/api/shots`,
   next: `${API_BASE}/api/next`,
@@ -329,10 +328,10 @@ async function loadApp() {
   window.history.replaceState(routeFromUrl(), "", window.location.href);
   applyResponsiveView();
   try {
-    const [status, schema] = await Promise.all([fetchJson(API.status), fetchJson(API.schema)]);
+    const schema = await fetchJson(API.schema);
     state.demo = false;
     state.schema = normalizeSchema(schema.fields?.length ? schema.fields : DEFAULT_SCHEMA);
-    els.connectionState.textContent = `${status.shots ?? 0} in SDB`;
+    els.connectionState.textContent = "Connected";
     await loadShots();
   } catch (error) {
     state.demo = true;

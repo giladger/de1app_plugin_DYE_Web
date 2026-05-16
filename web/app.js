@@ -7,7 +7,6 @@ const API = {
   next: `${API_BASE}/api/next`,
   shot: (clock) => `${API_BASE}/api/shots/${clock}`,
   reference: (clock) => `${API_BASE}/api/shots/${clock}/reference`,
-  repeat: (clock) => `${API_BASE}/api/shots/${clock}/repeat`,
   profile: (clock) => `${API_BASE}/api/shots/${clock}/profile`,
   visualizer: (clock) => `${API_BASE}/api/shots/${clock}/visualizer`,
   values: (field) => `${API_BASE}/api/fields/${encodeURIComponent(field)}/values`,
@@ -114,7 +113,6 @@ const els = {
   chartLegend: document.querySelector("#chartLegend"),
   backToShotsButton: document.querySelector("#backToShotsButton"),
   favoriteButton: document.querySelector("#favoriteButton"),
-  repeatButton: document.querySelector("#repeatButton"),
   profileButton: document.querySelector("#profileButton"),
   editButton: document.querySelector("#editButton"),
   actionStatus: document.querySelector("#actionStatus"),
@@ -531,7 +529,6 @@ function renderDetail(data) {
 function renderDetailActions(shot) {
   const historyShot = state.mode === "history" && shot.kind !== "next" && shot.clock;
   els.favoriteButton.disabled = !historyShot;
-  els.repeatButton.disabled = !historyShot;
   els.profileButton.disabled = !historyShot || !(shot.profile_title || shot.profile_filename);
   els.favoriteButton.classList.toggle("active", Boolean(shot.reference));
   els.favoriteButton.textContent = "Favorite";
@@ -1121,16 +1118,6 @@ async function toggleFavorite() {
   renderShotList();
 }
 
-async function repeatSelectedShot() {
-  if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
-  els.repeatButton.disabled = true;
-  setActionStatus("Copying shot to Next Shot...", "info", { timeout: 0 });
-  const data = await fetchJson(API.repeat(state.selectedDetail.shot.clock), { method: "POST" });
-  els.connectionState.textContent = data.message || "Copied to Next Shot";
-  setActionStatus(data.message || "Copied to Next Shot", "success");
-  els.repeatButton.disabled = false;
-}
-
 async function loadSelectedProfile() {
   if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
   els.profileButton.disabled = true;
@@ -1194,11 +1181,6 @@ els.backToShotsButton.addEventListener("click", () => {
   setMobileView("list");
 });
 els.favoriteButton.addEventListener("click", () => toggleFavorite().catch((error) => {
-  els.connectionState.textContent = error.message;
-  setActionStatus(error.message, "error");
-  renderDetailActions(state.selectedDetail?.shot || {});
-}));
-els.repeatButton.addEventListener("click", () => repeatSelectedShot().catch((error) => {
   els.connectionState.textContent = error.message;
   setActionStatus(error.message, "error");
   renderDetailActions(state.selectedDetail?.shot || {});

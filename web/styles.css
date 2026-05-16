@@ -435,6 +435,7 @@ h3 {
 .shot-hero {
   display: flex;
   align-items: start;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
   padding: 18px;
@@ -445,6 +446,26 @@ h3 {
   display: flex;
   flex-shrink: 0;
   gap: 8px;
+}
+
+.action-status {
+  flex-basis: 100%;
+  min-height: 22px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 740;
+}
+
+.action-status[hidden] {
+  display: none;
+}
+
+.action-status[data-tone="success"] {
+  color: var(--green);
+}
+
+.action-status[data-tone="error"] {
+  color: var(--coral);
 }
 
 .mobile-back-button {

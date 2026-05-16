@@ -117,11 +117,13 @@ const els = {
   repeatButton: document.querySelector("#repeatButton"),
   profileButton: document.querySelector("#profileButton"),
   editButton: document.querySelector("#editButton"),
+  actionStatus: document.querySelector("#actionStatus"),
   floatingSaveButton: document.querySelector("#floatingSaveButton"),
   floatingSaveCount: document.querySelector("#floatingSaveCount"),
 };
 
 const mobileQuery = window.matchMedia("(max-width: 900px)");
+let actionStatusTimer;
 
 function cleanValue(value) {
   if (value === null || value === undefined) return "";
@@ -273,6 +275,17 @@ function setMobileView(view, options = {}) {
   }
   if (view === "detail" && state.selectedDetail) {
     requestAnimationFrame(() => drawChart(state.selectedDetail.series || {}));
+  }
+}
+
+function setActionStatus(message = "", tone = "info", options = {}) {
+  if (!els.actionStatus) return;
+  clearTimeout(actionStatusTimer);
+  els.actionStatus.textContent = message;
+  els.actionStatus.dataset.tone = tone;
+  els.actionStatus.hidden = !message;
+  if (message && options.timeout !== 0) {
+    actionStatusTimer = setTimeout(() => setActionStatus(""), options.timeout || 3500);
   }
 }
 
@@ -464,6 +477,7 @@ function renderFavoriteList() {
 async function selectShot(clock, options = {}) {
   state.selectedClock = clock;
   state.visualizerStatus = "";
+  setActionStatus("");
   renderFavoriteList();
   renderShotList();
   let data;
@@ -520,7 +534,7 @@ function renderDetailActions(shot) {
   els.repeatButton.disabled = !historyShot;
   els.profileButton.disabled = !historyShot || !(shot.profile_title || shot.profile_filename);
   els.favoriteButton.classList.toggle("active", Boolean(shot.reference));
-  els.favoriteButton.textContent = shot.reference ? "Favorited" : "Favorite";
+  els.favoriteButton.textContent = "Favorite";
 }
 
 function renderMetrics(shot) {
@@ -1102,6 +1116,7 @@ async function toggleFavorite() {
     state.favoriteShots[existingFavoriteIndex] = { ...state.favoriteShots[existingFavoriteIndex], reference: data.reference };
   }
   renderDetailActions(shot);
+  setActionStatus(shot.reference ? "Added to favorites" : "Removed from favorites", "success");
   renderFavoriteList();
   renderShotList();
 }
@@ -1109,16 +1124,20 @@ async function toggleFavorite() {
 async function repeatSelectedShot() {
   if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
   els.repeatButton.disabled = true;
+  setActionStatus("Copying shot to Next Shot...", "info", { timeout: 0 });
   const data = await fetchJson(API.repeat(state.selectedDetail.shot.clock), { method: "POST" });
   els.connectionState.textContent = data.message || "Copied to Next Shot";
+  setActionStatus(data.message || "Copied to Next Shot", "success");
   els.repeatButton.disabled = false;
 }
 
 async function loadSelectedProfile() {
   if (!state.selectedDetail?.shot?.clock || state.mode !== "history") return;
   els.profileButton.disabled = true;
+  setActionStatus("Loading profile on the machine...", "info", { timeout: 0 });
   const data = await fetchJson(API.profile(state.selectedDetail.shot.clock), { method: "POST" });
   els.connectionState.textContent = data.profile_title ? `Loaded ${data.profile_title}` : (data.message || "Profile loaded");
+  setActionStatus(data.profile_title ? `Loaded profile: ${data.profile_title}` : (data.message || "Profile loaded"), "success");
   els.profileButton.disabled = false;
 }
 
@@ -1176,14 +1195,17 @@ els.backToShotsButton.addEventListener("click", () => {
 });
 els.favoriteButton.addEventListener("click", () => toggleFavorite().catch((error) => {
   els.connectionState.textContent = error.message;
+  setActionStatus(error.message, "error");
   renderDetailActions(state.selectedDetail?.shot || {});
 }));
 els.repeatButton.addEventListener("click", () => repeatSelectedShot().catch((error) => {
   els.connectionState.textContent = error.message;
+  setActionStatus(error.message, "error");
   renderDetailActions(state.selectedDetail?.shot || {});
 }));
 els.profileButton.addEventListener("click", () => loadSelectedProfile().catch((error) => {
   els.connectionState.textContent = error.message;
+  setActionStatus(error.message, "error");
   renderDetailActions(state.selectedDetail?.shot || {});
 }));
 els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) => {

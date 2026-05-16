@@ -256,7 +256,8 @@ proc ::plugins::DYE_Web::read_request { chan } {
 	dict set request body [string range $body 0 [expr {$content_length-1}]]
 
 	if { [catch { handle_request $chan $request } err opts] } {
-		msg -ERROR "Request failed: $err"
+		set error_info [dict get $opts -errorinfo]
+		msg -ERROR "Request failed: $err\n$error_info"
 		send_json $chan 500 [json_object [list ok [json_bool 0] error [json_string $err]]]
 	}
 	close_client $chan
@@ -364,6 +365,10 @@ proc ::plugins::DYE_Web::handle_api { chan request } {
 	}
 	if { $path eq "/api/shots" && $method eq "GET" } {
 		send_json $chan 200 [api_shots [dict get $request query]]
+		return
+	}
+	if { [regexp {^/api/shots/([0-9]+)/visualizer$} $path -> clock] && $method in {POST PATCH} } {
+		send_json $chan 200 [api_sync_visualizer_shot $clock [dict get $request body]]
 		return
 	}
 	if { [regexp {^/api/shots/([0-9]+)$} $path -> clock] } {
@@ -569,6 +574,49 @@ proc ::plugins::DYE_Web::api_update_shot { clock body } {
 	return [api_shot_detail $clock]
 }
 
+proc ::plugins::DYE_Web::api_sync_visualizer_shot { clock body } {
+	set payload [parse_json_body $body]
+	set requested [extract_field_updates $payload]
+
+	array set shot {}
+	if { ![catch { ::plugins::SDB::load_shot $clock 1 1 1 1 } shot_list] && $shot_list ne "" } {
+		array set shot $shot_list
+	} else {
+		array set shot [shot_from_db $clock]
+	}
+	if { ![info exists shot(clock)] } {
+		error "Shot $clock was not found"
+	}
+
+	set link [visualizer_url_from_shot shot]
+	if { $link eq "" } {
+		return [visualizer_sync_response 0 "" "" {} "This shot does not have a Visualizer link yet"]
+	}
+	set visualizer_id [visualizer_id_from_url $link]
+	if { $visualizer_id eq "" } {
+		return [visualizer_sync_response 0 "" $link {} "Could not read the Visualizer shot id from the link"]
+	}
+
+	set updates [visualizer_updates_from_fields $requested shot]
+	if { [dict size $updates] == 0 } {
+		return [visualizer_sync_response 0 $visualizer_id $link {} "No Visualizer-editable fields changed"]
+	}
+
+	if { ![plugins available visualizer_upload] } {
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] "The Upload to Visualizer extension is not installed"]
+	}
+	if { ![plugins enabled visualizer_upload] } {
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] "The Upload to Visualizer extension is disabled"]
+	}
+	catch { plugins load visualizer_upload }
+	if { [namespace which -command ::plugins::visualizer_upload::has_credentials] eq "" ||
+			![::plugins::visualizer_upload::has_credentials] } {
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] "Visualizer username or password is not configured"]
+	}
+
+	return [visualizer_patch_shot $visualizer_id $link $updates]
+}
+
 proc ::plugins::DYE_Web::api_next {} {
 	if { [namespace which -command ::plugins::DYE::shots::get_next] eq "" } {
 		return [json_object [list ok [json_bool 0] error [json_string "DYE is not loaded; Next Shot editing is unavailable"]]]
@@ -735,6 +783,163 @@ proc ::plugins::DYE_Web::extract_field_updates { payload } {
 		}
 	}
 	return $updates
+}
+
+proc ::plugins::DYE_Web::visualizer_updates_from_fields { requested shot_var } {
+	upvar $shot_var shot
+
+	set mapping {
+		bean_brand bean_brand
+		bean_type bean_type
+		roast_level roast_level
+		roast_date roast_date
+		bean_notes bean_notes
+		grinder_model grinder_model
+		grinder_setting grinder_setting
+		grinder_dose_weight bean_weight
+		drink_weight drink_weight
+		drink_tds drink_tds
+		drink_ey drink_ey
+		espresso_enjoyment espresso_enjoyment
+		espresso_notes espresso_notes
+		my_name barista
+	}
+	set updates [dict create]
+	foreach {dye_field visualizer_field} $mapping {
+		if { [dict size $requested] > 0 } {
+			if { ![dict exists $requested $dye_field] } continue
+			set value [dict get $requested $dye_field]
+		} else {
+			if { ![info exists shot($dye_field)] } continue
+			set value $shot($dye_field)
+		}
+		dict set updates $visualizer_field [normalize_field_value $dye_field $value]
+	}
+	return $updates
+}
+
+proc ::plugins::DYE_Web::visualizer_url_from_shot { shot_var } {
+	upvar $shot_var shot
+
+	foreach field {repository_links visualizer_link visualizer_url} {
+		if { [info exists shot($field)] } {
+			set url [visualizer_url_from_value $shot($field)]
+			if { $url ne "" } { return $url }
+		}
+	}
+	return ""
+}
+
+proc ::plugins::DYE_Web::visualizer_url_from_value { value } {
+	if { [regexp -nocase {(https?://visualizer\.coffee/shots/[^ \t\r\n\}\]]+)} $value -> url] } {
+		return $url
+	}
+	if { [regexp -nocase {(https?://[^ \t\r\n\}\]]+/shots/[^ \t\r\n\}\]]+)} $value -> url] } {
+		return $url
+	}
+	if { [regexp -nocase {(^|[^[:alnum:]])([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})([^[:alnum:]]|$)} $value -> _ id] } {
+		return "https://visualizer.coffee/shots/$id"
+	}
+	return ""
+}
+
+proc ::plugins::DYE_Web::visualizer_id_from_url { url } {
+	if { [regexp -nocase {/shots/([^/?# \t\r\n\}\]]+)} $url -> id] } {
+		return $id
+	}
+	return ""
+}
+
+proc ::plugins::DYE_Web::visualizer_patch_shot { visualizer_id link updates } {
+	if { [catch { package require http } err] } {
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] "Tcl http package is not available: $err"]
+	}
+	if { [catch { package require tls } err] } {
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] "Tcl tls package is not available: $err"]
+	}
+
+	variable ::plugins::visualizer_upload::settings
+	set host [value_or_default ::plugins::visualizer_upload::settings(visualizer_url) "visualizer.coffee"]
+	regsub -nocase {^https?://} $host "" host
+	set host [string trimright $host "/"]
+	set auth "Basic [binary encode base64 $settings(visualizer_username):$settings(visualizer_password)]"
+	set url "https://$host/api/shots/$visualizer_id"
+	set body [encoding convertto utf-8 [json_object [list shot [visualizer_shot_json $updates]]]]
+	set headers [list Authorization $auth Accept "application/json"]
+	set code 0
+	set answer ""
+	set full_code ""
+
+	catch { ::http::register https 443 [list ::tls::socket -servername $host] }
+	if { [catch {
+		set token [::http::geturl $url \
+			-headers $headers \
+			-method PATCH \
+			-type "application/json" \
+			-query $body \
+			-timeout 15000]
+		set answer [::http::data $token]
+		set code [::http::ncode $token]
+		set full_code [::http::code $token]
+		::http::cleanup $token
+	} err] } {
+		catch { ::http::cleanup $token }
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] "Visualizer update failed: $err"]
+	}
+
+	if { $code < 200 || $code >= 300 } {
+		set message "Visualizer update failed: $full_code"
+		if { [string trim $answer] ne "" } {
+			append message " - [visualizer_error_from_answer $answer]"
+		}
+		return [visualizer_sync_response 0 $visualizer_id $link [dict keys $updates] $message]
+	}
+
+	return [visualizer_sync_response 1 $visualizer_id $link [dict keys $updates] ""]
+}
+
+proc ::plugins::DYE_Web::visualizer_shot_json { updates } {
+	set numeric_fields {bean_weight drink_weight drink_tds drink_ey espresso_enjoyment}
+	set pairs {}
+	dict for {field value} $updates {
+		if { $field in $numeric_fields } {
+			lappend pairs $field [json_nullable_number $value]
+		} else {
+			lappend pairs $field [json_string $value]
+		}
+	}
+	return [json_object $pairs]
+}
+
+proc ::plugins::DYE_Web::visualizer_error_from_answer { answer } {
+	set trimmed [string trim [encoding convertfrom utf-8 $answer]]
+	if { [catch { ::json::json2dict $trimmed } parsed] == 0 && [dict exists $parsed error] } {
+		return [dict get $parsed error]
+	}
+	if { [string length $trimmed] > 180 } {
+		return "[string range $trimmed 0 176]..."
+	}
+	return $trimmed
+}
+
+proc ::plugins::DYE_Web::visualizer_sync_response { synced visualizer_id link fields error } {
+	set field_json {}
+	foreach field $fields {
+		lappend field_json [json_string $field]
+	}
+	set pairs [list \
+		synced [json_bool $synced] \
+		id [json_string $visualizer_id] \
+		url [json_string $link] \
+		fields [json_array_raw $field_json] \
+	]
+	if { $error ne "" } {
+		lappend pairs error [json_string $error]
+	}
+	return [json_object [list \
+		ok [json_bool 1] \
+		visualizer [json_object $pairs] \
+	]]
 }
 
 proc ::plugins::DYE_Web::parse_json_body { body } {

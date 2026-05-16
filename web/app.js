@@ -6,6 +6,7 @@ const API = {
   shots: `${API_BASE}/api/shots`,
   next: `${API_BASE}/api/next`,
   shot: (clock) => `${API_BASE}/api/shots/${clock}`,
+  visualizer: (clock) => `${API_BASE}/api/shots/${clock}/visualizer`,
   values: (field) => `${API_BASE}/api/fields/${encodeURIComponent(field)}/values`,
 };
 
@@ -85,6 +86,8 @@ const state = {
   categoryValues: new Map(),
   originalValues: new Map(),
   dirtyValues: new Map(),
+  visualizerSync: true,
+  visualizerStatus: "",
   mobileView: "list",
   demo: false,
 };
@@ -371,6 +374,7 @@ async function loadShots() {
 }
 
 async function loadNext() {
+  state.visualizerStatus = "";
   els.shotList.innerHTML = `<div class="empty-state">Next Shot plan</div>`;
   els.shotCount.textContent = "Next Shot";
   const data = await fetchJson(API.next);
@@ -409,6 +413,7 @@ function renderShotList() {
 
 async function selectShot(clock, options = {}) {
   state.selectedClock = clock;
+  state.visualizerStatus = "";
   renderShotList();
   let data;
   if (state.demo) {
@@ -434,6 +439,7 @@ async function selectShot(clock, options = {}) {
 
 function renderEmptyDetail() {
   state.selectedDetail = null;
+  state.visualizerStatus = "";
   els.selectedDate.textContent = "No shots";
   els.selectedTitle.textContent = "Shot history";
   els.selectedSubtitle.textContent = "No matching shots were found.";
@@ -563,6 +569,28 @@ function renderVisualizerLinkField(field) {
     urlText.textContent = url;
     meta.append(urlText);
     wrap.append(meta);
+
+    if (state.mode === "history") {
+      const sync = document.createElement("label");
+      sync.className = "visualizer-sync";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = state.visualizerSync;
+      checkbox.addEventListener("change", () => {
+        state.visualizerSync = checkbox.checked;
+        state.visualizerStatus = checkbox.checked ? "" : "Visualizer sync is off";
+        updateVisualizerStatus();
+      });
+      const syncText = document.createElement("span");
+      syncText.textContent = "Sync edits to Visualizer";
+      sync.append(checkbox, syncText);
+      wrap.append(sync);
+
+      const status = document.createElement("div");
+      status.className = "visualizer-sync-status";
+      status.textContent = state.visualizerStatus;
+      wrap.append(status);
+    }
   } else {
     const empty = document.createElement("div");
     empty.className = "read-only-value";
@@ -570,6 +598,17 @@ function renderVisualizerLinkField(field) {
     wrap.append(empty);
   }
   return wrap;
+}
+
+function hasVisualizerLink(detail = state.selectedDetail) {
+  if (!detail) return false;
+  const fields = normalizeFields(detail.fields || []);
+  return fields.some((field) => isVisualizerLinkField(field) && extractUrl(field.value));
+}
+
+function updateVisualizerStatus() {
+  const status = document.querySelector(".visualizer-sync-status");
+  if (status) status.textContent = state.visualizerStatus;
 }
 
 function extractUrl(value) {
@@ -925,9 +964,14 @@ async function saveInlineEdits() {
       fields[name] = entry.value;
     }
   }
+  const syncVisualizer = state.mode === "history" && state.visualizerSync && hasVisualizerLink();
 
   els.editButton.disabled = true;
-  els.editButton.textContent = "Saving...";
+  els.editButton.textContent = syncVisualizer ? "Saving + syncing..." : "Saving...";
+  if (syncVisualizer) {
+    state.visualizerStatus = "Will sync after the local save";
+    updateVisualizerStatus();
+  }
 
   if (state.demo) {
     const existing = state.selectedDetail.fields || [];
@@ -945,6 +989,29 @@ async function saveInlineEdits() {
   state.selectedDetail = normalizeDetail(data);
   renderDetail(state.selectedDetail);
   if (state.mode === "history") await loadShots();
+  if (syncVisualizer) await syncVisualizerEdits(fields);
+}
+
+async function syncVisualizerEdits(fields) {
+  if (!state.selectedClock || state.selectedClock === "next") return;
+  state.visualizerStatus = "Syncing Visualizer...";
+  updateVisualizerStatus();
+  try {
+    const data = await fetchJson(API.visualizer(state.selectedClock), {
+      method: "POST",
+      body: JSON.stringify({ fields }),
+    });
+    const result = data.visualizer || {};
+    if (result.synced) {
+      const count = Array.isArray(result.fields) ? result.fields.length : 0;
+      state.visualizerStatus = `Visualizer synced (${count} field${count === 1 ? "" : "s"})`;
+    } else {
+      state.visualizerStatus = result.error || "Visualizer was not synced";
+    }
+  } catch (error) {
+    state.visualizerStatus = `Visualizer sync failed: ${error.message}`;
+  }
+  updateVisualizerStatus();
 }
 
 function escapeHtml(value) {

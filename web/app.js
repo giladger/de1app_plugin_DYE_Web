@@ -49,6 +49,7 @@ const DEMO_SHOTS = [
     drink_ey: 20.1,
     espresso_enjoyment: 86,
     espresso_notes: "Sweet citrus, clean finish.",
+    reference: true,
   },
   {
     clock: 1778847600,

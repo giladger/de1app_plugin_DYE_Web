@@ -1,51 +1,110 @@
 # DYE Web
 
-`DYE_Web` is a Decent DE1app plugin that serves a local, phone-friendly web interface for the DYE/SDB shot history.
+DYE Web is a Decent DE1app plugin that serves a local, phone-friendly web app for browsing your espresso history and editing DYE description fields.
 
-It uses the same SDB and DYE APIs that the tablet UI uses:
+It is built for the moment after the shot, when the tablet UI is not the nicest place to type. Open DYE Web on your phone, find the shot, update the bean/grinder/tasting data, and save it back to the Decent shot file and SDB.
 
-- Lists previous shots from `V_shot`
-- Loads graph series from `.shot` files, falling back to SDB series when available
-- Exposes DYE description metadata from the shared `metadata` dictionary
-- Writes shot edits through `::plugins::SDB::modify_shot_file`
-- Updates the SDB description row with `::plugins::SDB::update_shot_description`
-- Edits DYE's Next Shot plan when DYE is loaded
+## What It Does
 
-## Install
+- Shows recent shots from SDB in a clean web interface
+- Draws shot curves for pressure, flow, weight, and temperature
+- Lets you edit DYE description fields inline, without pop-up edit dialogs
+- Saves historical shot edits back to the `.shot` file and SDB description data
+- Syncs edited fields to visualizer.coffee when a Visualizer link exists for the shot
+- Lets you mark favorite shots and jump back to them quickly
+- Can load the selected shot's profile onto the machine
+- Includes a mock-data preview when opened outside DE1app
 
-Copy or symlink this folder into your DE1 app plugins folder as:
+## Why
+
+DYE is great because it gives espresso data structure: beans, roast, grinder, recipe, tasting notes, and people. The DE1 tablet is less great for reviewing a whole shot history or typing lots of small metadata edits.
+
+DYE Web keeps the Decent tablet as the source of truth, but gives you a modern web surface for the tasks that feel better on a phone:
+
+- compare previous shots
+- quickly find a favorite reference shot
+- fix missing bean or grinder values
+- write notes while the taste is still fresh
+- keep Visualizer and DYE metadata aligned
+
+## Screenshots
+
+The screenshots below use mock shot details with an example graph from a real Decent shot.
+
+![DYE Web desktop shot history](docs/screenshots/dye-web-desktop.png)
+
+![DYE Web mobile history](docs/screenshots/dye-web-mobile-history.png)
+
+![DYE Web mobile shot detail](docs/screenshots/dye-web-mobile-shot.png)
+
+## Requirements
+
+- Decent DE1 tablet running DE1app
+- SDB plugin enabled
+- DYE plugin enabled for description editing and profile loading
+- Your phone and tablet on the same Wi-Fi network
+
+## Installation
+
+1. Download `dist/DYE_Web.zip` from this repo.
+2. Copy the zip to the Decent tablet. A browser download, USB-C drive, cloud drive, or local network copy is fine.
+3. Open the Android `Files` app on the tablet.
+4. Find `DYE_Web.zip` and extract it.
+5. You should now have a folder named `DYE_Web`.
+6. Copy or move the whole `DYE_Web` folder into:
 
 ```text
-de1plus/plugins/DYE_Web
+Internal storage/de1plus/plugins/
 ```
 
-Then enable `SDB`, `DYE`, and `DYE_Web` from `Settings > App > Extensions`.
-
-If you use `adb` over USB, copy only the plugin files like this:
-
-```sh
-adb shell mkdir -p /sdcard/de1plus/plugins/DYE_Web
-adb push plugin.tcl DYE_Web.tcl README.md web /sdcard/de1plus/plugins/DYE_Web/
-```
-
-If you are copying on the tablet with a file manager, create:
+The final layout should look like this:
 
 ```text
-/sdcard/de1plus/plugins/DYE_Web
+de1plus/
+  plugins/
+    DYE_Web/
+      plugin.tcl
+      DYE_Web.tcl
+      web/
+        index.html
+        app.js
+        styles.css
 ```
 
-and place `plugin.tcl`, `DYE_Web.tcl`, `README.md`, and the `web` folder inside it.
+7. Restart the Decent app, or go to `Settings > App > Extensions`.
+8. Enable `SDB`, `DYE`, and `DYE Web`.
 
-By default the plugin listens on:
+## Opening The Web App
+
+By default, DYE Web listens on port `8787`.
+
+From a phone on the same Wi-Fi network, open:
 
 ```text
 http://<tablet-ip>:8787/
 ```
 
-This build does not expose a DE1app settings page. The server starts with the default port above.
+For example:
+
+```text
+http://10.0.0.76:8787/
+```
+
+You can usually find the tablet IP address in Android Wi-Fi settings, your router's device list, or any network scanner app.
+
+## Using It
+
+- Tap a shot in History to open its detail view.
+- Use Search to find shots by beans, profile, grinder, or notes.
+- Tap `Favorite` on important shots to keep them in the Favorites list.
+- Edit fields directly in the shot detail view.
+- Tap the floating save button when it appears.
+- Tap `Load profile` to load that shot's espresso profile onto the machine.
+- Open the Visualizer link from the detail view when the shot has one.
 
 ## Notes
 
-- Your phone must be on the same Wi-Fi network as the tablet.
-- DYE Web edits saved historical shots by modifying the original `.shot` file, then updating SDB when description persistence is enabled.
-- The static web UI has a preview-data fallback, so it can be opened outside DE1app during development.
+- DYE Web is local to your network. It does not publish your data to the internet.
+- The tablet remains the source of truth. The web app talks to the plugin running inside DE1app.
+- Visualizer sync only happens when the shot already has a Visualizer link.
+- If the web UI is opened outside DE1app, it falls back to mock data so you can still see the interface.

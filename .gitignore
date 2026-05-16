@@ -1,2 +1,5 @@
-dist/
+dist/*
+!dist/
+!dist/DYE_Web.zip
 .artifacts/*
+.DS_Store

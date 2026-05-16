@@ -8,9 +8,9 @@ catch { package require json::write }
 catch { package require zint }
 
 namespace eval ::plugins::DYE_Web {
-	variable author "OpenAI Codex"
-	variable contact ""
-	variable version 0.2
+	variable author "Gilad Gershtein"
+	variable contact "genager@gmail.com"
+	variable version 0.3
 	variable github_repo ""
 	variable name "DYE Web"
 	variable description "Serves a modern mobile web interface for DYE/SDB shot history and description metadata."
@@ -1039,7 +1039,6 @@ proc ::plugins::DYE_Web::json_nullable_number { value } {
 namespace eval ::dui::pages::DYE_Web_settings {
 	variable widgets
 	array set widgets {}
-	variable qr_img
 	variable url_text ""
 	variable qr_status_text ""
 
@@ -1059,10 +1058,11 @@ namespace eval ::dui::pages::DYE_Web_settings {
 		dui add dbutton $page 180 1160 -tags done -label "Done" -style insight_ok \
 			-command ::dui::pages::DYE_Web_settings::page_done
 
-		image create photo [namespace current]::qr_img -width [dui::platform::rescale_x 900] \
-			-height [dui::platform::rescale_y 900]
-		dui add image $page 1880 730 {} -tags qr
-		dui item config $page qr -image [namespace current]::qr_img
+		set qr_image [ensure_qr_image]
+		if { $qr_image ne "" } {
+			dui add image $page 1880 730 {} -tags qr
+			dui item config $page qr -image $qr_image
+		}
 		dui add dtext $page 1530 1260 -tags qr_status -textvariable ::dui::pages::DYE_Web_settings::qr_status_text \
 			-font Helv_7 -fill "#666666" -width 820 -justify center
 	}
@@ -1071,20 +1071,66 @@ namespace eval ::dui::pages::DYE_Web_settings {
 		update_url_qr
 	}
 
+	proc qr_image_name {} {
+		return [namespace current]::qr_img
+	}
+
+	proc scaled_x { value } {
+		if { [llength [info commands ::dui::platform::rescale_x]] > 0 } {
+			return [::dui::platform::rescale_x $value]
+		}
+		return $value
+	}
+
+	proc scaled_y { value } {
+		if { [llength [info commands ::dui::platform::rescale_y]] > 0 } {
+			return [::dui::platform::rescale_y $value]
+		}
+		return $value
+	}
+
+	proc ensure_qr_image {} {
+		if { [llength [info commands image]] == 0 } {
+			return ""
+		}
+		set qr_image [qr_image_name]
+		if { [lsearch -exact [image names] $qr_image] < 0 } {
+			catch {
+				image create photo $qr_image -width [scaled_x 900] -height [scaled_y 900]
+			}
+		}
+		if { [lsearch -exact [image names] $qr_image] >= 0 } {
+			return $qr_image
+		}
+		return ""
+	}
+
+	proc blank_qr_image {} {
+		set qr_image [ensure_qr_image]
+		if { $qr_image ne "" } {
+			catch { $qr_image blank }
+		}
+	}
+
 	proc update_url_qr {} {
 		variable url_text
 		variable qr_status_text
 
 		set url_text "Open [::plugins::DYE_Web::web_url] from your phone on the same Wi-Fi."
+		set qr_image [ensure_qr_image]
+		if { $qr_image eq "" } {
+			set qr_status_text "Use the URL on the left."
+			return
+		}
 		if { [catch { package present zint } err] } {
-			[namespace current]::qr_img blank
+			blank_qr_image
 			set qr_status_text "QR requires the zint package; use the URL on the left."
 			return
 		}
 		if { [catch {
-			zint encode [::plugins::DYE_Web::web_url] [namespace current]::qr_img -barcode QR -scale 2.4
+			zint encode [::plugins::DYE_Web::web_url] $qr_image -barcode QR -scale 2.4
 		} err] } {
-			[namespace current]::qr_img blank
+			blank_qr_image
 			set qr_status_text "Could not generate QR; use the URL on the left."
 			return
 		}

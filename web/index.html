@@ -14,9 +14,6 @@
           <p class="eyebrow">Describe Your Espresso</p>
           <h1>DYE Web</h1>
         </div>
-        <div class="top-actions">
-          <button class="secondary-button refresh-button" id="refreshButton" type="button">Refresh</button>
-        </div>
       </header>
 
       <section class="controls" aria-label="Shot controls">
@@ -30,23 +27,16 @@
         </label>
       </section>
 
-      <section class="filter-bar" aria-label="Shot filters">
-        <div class="filter-chips" id="filterChips"></div>
-        <div class="saved-view-controls">
-          <select id="savedViews" aria-label="Saved views">
-            <option value="">Saved views</option>
-          </select>
-          <button id="saveViewButton" class="secondary-button compact-button" type="button">Save view</button>
-          <button id="deleteViewButton" class="secondary-button compact-button" type="button" disabled>Delete</button>
-        </div>
-      </section>
-
       <main class="workspace">
         <section class="shot-list-panel" aria-label="Shot history">
           <div class="list-meta">
             <span id="shotCount">0 shots</span>
             <span id="connectionState">Connecting</span>
           </div>
+          <section class="favorites-panel" aria-label="Favorite shots">
+            <div class="favorites-title">Favorites</div>
+            <div class="favorites-list" id="favoriteList"></div>
+          </section>
           <div class="shot-list" id="shotList"></div>
         </section>
 
@@ -59,7 +49,7 @@
               <p id="selectedSubtitle" class="subtitle">Your saved Decent espresso shots will appear here.</p>
             </div>
             <div class="detail-actions">
-              <button id="referenceButton" class="secondary-button compact-button" type="button" disabled>Reference</button>
+              <button id="favoriteButton" class="secondary-button compact-button" type="button" disabled>Favorite</button>
               <button id="repeatButton" class="secondary-button compact-button" type="button" disabled>Repeat</button>
               <button id="profileButton" class="secondary-button compact-button" type="button" disabled>Load profile</button>
               <button id="editButton" class="primary-button" type="button" disabled>Saved</button>

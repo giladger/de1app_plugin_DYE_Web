@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f6f8f9">
+    <title>DYE Web</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Describe Your Espresso</p>
+          <h1>DYE Web</h1>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh shots" title="Refresh shots">
+            <span aria-hidden="true">R</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="controls" aria-label="Shot controls">
+        <div class="segmented" role="tablist" aria-label="View">
+          <button id="historyTab" class="segment active" type="button" role="tab" aria-selected="true">History</button>
+          <button id="nextTab" class="segment" type="button" role="tab" aria-selected="false">Next Shot</button>
+        </div>
+        <label class="search-wrap">
+          <span>Search</span>
+          <input id="searchInput" type="search" autocomplete="off" placeholder="Beans, profile, grinder, notes">
+        </label>
+      </section>
+
+      <main class="workspace">
+        <section class="shot-list-panel" aria-label="Shot history">
+          <div class="list-meta">
+            <span id="shotCount">0 shots</span>
+            <span id="connectionState">Connecting</span>
+          </div>
+          <div class="shot-list" id="shotList"></div>
+        </section>
+
+        <section class="detail-panel" aria-live="polite">
+          <div class="shot-hero">
+            <div class="shot-title-block">
+              <p class="eyebrow" id="selectedDate">Select a shot</p>
+              <h2 id="selectedTitle">Shot history</h2>
+              <p id="selectedSubtitle" class="subtitle">Your saved Decent espresso shots will appear here.</p>
+            </div>
+            <button id="editButton" class="primary-button" type="button">Edit Values</button>
+          </div>
+
+          <div class="metrics-strip" id="metricsStrip"></div>
+
+          <div class="chart-band">
+            <canvas id="shotChart" aria-label="Shot chart"></canvas>
+            <div class="chart-legend" id="chartLegend"></div>
+          </div>
+
+          <div class="metadata-grid" id="metadataGrid"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="editor-dialog" id="editorDialog">
+      <form method="dialog" class="editor-surface" id="editorForm">
+        <header class="editor-header">
+          <div>
+            <p class="eyebrow" id="editorEyebrow">Edit</p>
+            <h2 id="editorTitle">Description Values</h2>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close editor" title="Close editor">
+            <span aria-hidden="true">x</span>
+          </button>
+        </header>
+        <div class="editor-fields" id="editorFields"></div>
+        <footer class="editor-actions">
+          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button class="primary-button" id="saveButton" type="button">Save Changes</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

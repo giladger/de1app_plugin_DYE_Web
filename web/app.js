@@ -83,6 +83,8 @@ const state = {
   selectedClock: null,
   selectedDetail: null,
   categoryValues: new Map(),
+  originalValues: new Map(),
+  dirtyValues: new Map(),
   demo: false,
 };
 
@@ -102,12 +104,6 @@ const els = {
   shotChart: document.querySelector("#shotChart"),
   chartLegend: document.querySelector("#chartLegend"),
   editButton: document.querySelector("#editButton"),
-  editorDialog: document.querySelector("#editorDialog"),
-  editorForm: document.querySelector("#editorForm"),
-  editorEyebrow: document.querySelector("#editorEyebrow"),
-  editorTitle: document.querySelector("#editorTitle"),
-  editorFields: document.querySelector("#editorFields"),
-  saveButton: document.querySelector("#saveButton"),
 };
 
 function cleanValue(value) {
@@ -364,31 +360,165 @@ function ratioFromShot(shot) {
 
 function normalizeFields(fields) {
   const values = new Map(fields.map((field) => [cleanValue(field.name), cleanValue(field.value)]));
-  return state.schema.map((field) => ({ ...field, value: values.get(field.key) ?? "" }));
+  const schemaKeys = new Set(state.schema.map((field) => field.key));
+  const normalized = state.schema.map((field) => ({ ...field, value: values.get(field.key) ?? "" }));
+  for (const field of fields) {
+    const key = cleanValue(field.name);
+    if (!key || schemaKeys.has(key)) continue;
+    normalized.push({
+      key,
+      name: titleFromKey(key),
+      short_name: titleFromKey(key),
+      section: "description",
+      data_type: inferFieldType(key, field.value),
+      value: cleanValue(field.value),
+    });
+  }
+  return normalized;
 }
 
 function renderMetadata(fields) {
   const groups = groupFields(fields);
   els.metadataGrid.innerHTML = "";
+  state.originalValues = new Map(fields.map((field) => [field.key, cleanValue(field.value)]));
+  state.dirtyValues.clear();
   for (const [section, items] of groups) {
     const block = document.createElement("section");
     block.className = "metadata-section";
-    block.innerHTML = `
-      <h3>${escapeHtml(sectionLabel(section))}</h3>
-      <div class="field-list">
-        ${items.map((field) => `
-          <button class="field-row" type="button" data-field-key="${escapeHtml(field.key)}">
-            <div class="field-name">${escapeHtml(fieldLabel(field))}</div>
-            <div class="field-value">${escapeHtml(displayFieldValue(field))}</div>
-          </button>
-        `).join("")}
-      </div>
-    `;
+    block.innerHTML = `<h3>${escapeHtml(sectionLabel(section))}</h3>`;
+    const list = document.createElement("div");
+    list.className = "field-list";
+    for (const field of items) {
+      list.append(renderInlineField(field));
+    }
+    block.append(list);
     els.metadataGrid.append(block);
   }
-  for (const row of els.metadataGrid.querySelectorAll("[data-field-key]")) {
-    row.addEventListener("click", () => openEditor(row.dataset.fieldKey));
+  updateSaveButton();
+}
+
+function inferFieldType(key, value) {
+  if (["grinder_dose_weight", "drink_weight", "drink_tds", "drink_ey", "espresso_enjoyment"].includes(key)) return "number";
+  if (String(cleanValue(value)).length > 80 || key.includes("notes") || key.includes("links")) return "long_text";
+  return "text";
+}
+
+function renderInlineField(field) {
+  const wrap = document.createElement("div");
+  wrap.className = `inline-field ${field.data_type === "number" ? "inline-field-number" : ""}`;
+  wrap.dataset.fieldKey = field.key;
+
+  const label = document.createElement("label");
+  label.setAttribute("for", `inline-${field.key}`);
+  label.textContent = fieldLabel(field);
+  wrap.append(label);
+
+  const input = createFieldInput(field, `inline-${field.key}`);
+  input.classList.add("inline-input");
+  input.addEventListener("input", () => markDirty(field, input.value, input));
+  input.addEventListener("change", () => markDirty(field, input.value, input));
+
+  if (field.data_type === "number") {
+    const control = document.createElement("div");
+    control.className = "number-control";
+    const decrement = stepButton("-", `Decrease ${fieldLabel(field)}`, () => {
+      adjustNumber(input, field, -1);
+      markDirty(field, input.value, input);
+    });
+    const increment = stepButton("+", `Increase ${fieldLabel(field)}`, () => {
+      adjustNumber(input, field, 1);
+      markDirty(field, input.value, input);
+    });
+    control.append(decrement, input, increment);
+    wrap.append(control);
+  } else {
+    wrap.append(input);
   }
+
+  const meta = document.createElement("div");
+  meta.className = "inline-field-meta";
+  const unit = cleanValue(field.measure_unit);
+  const hint = document.createElement("span");
+  hint.textContent = unit ? unit : titleFromKey(field.key);
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.textContent = "Clear";
+  clear.addEventListener("click", () => {
+    input.value = "";
+    markDirty(field, input.value, input);
+    input.focus();
+  });
+  meta.append(hint, clear);
+  wrap.append(meta);
+  return wrap;
+}
+
+function createFieldInput(field, id) {
+  let input;
+  if (field.data_type === "long_text" || field.data_type === "complex") {
+    input = document.createElement("textarea");
+  } else {
+    input = document.createElement("input");
+    input.type = field.data_type === "number" ? "number" : "text";
+    if (field.data_type === "number") {
+      input.inputMode = "decimal";
+      if (field.min !== null && field.min !== undefined) input.min = field.min;
+      if (field.max !== null && field.max !== undefined) input.max = field.max;
+      input.step = field.smallincrement || "any";
+    }
+    if (field.data_type === "category") {
+      const listId = `${id}-values`;
+      input.setAttribute("list", listId);
+      input.addEventListener("focus", () => hydrateDatalist(field.key, listId, input));
+    }
+  }
+  input.id = id;
+  input.name = field.key;
+  input.dataset.type = field.data_type || "text";
+  input.value = cleanValue(field.value);
+  return input;
+}
+
+async function hydrateDatalist(field, listId, input) {
+  if (document.getElementById(listId)) return;
+  const datalist = document.createElement("datalist");
+  datalist.id = listId;
+  datalist.innerHTML = (await getCategoryValues(field))
+    .map((value) => `<option value="${escapeHtml(value)}"></option>`)
+    .join("");
+  input.after(datalist);
+}
+
+function stepButton(text, label, action) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "step-button";
+  button.textContent = text;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", action);
+  return button;
+}
+
+function markDirty(field, value, input) {
+  const cleaned = cleanValue(value);
+  const original = state.originalValues.get(field.key) ?? "";
+  if (String(cleaned) === String(original)) {
+    state.dirtyValues.delete(field.key);
+    input.closest(".inline-field")?.classList.remove("dirty");
+  } else {
+    state.dirtyValues.set(field.key, {
+      type: field.data_type || "text",
+      value: cleaned,
+    });
+    input.closest(".inline-field")?.classList.add("dirty");
+  }
+  updateSaveButton();
+}
+
+function updateSaveButton() {
+  const count = state.dirtyValues.size;
+  els.editButton.textContent = count ? `Save ${count} change${count === 1 ? "" : "s"}` : "Saved";
+  els.editButton.disabled = count === 0;
 }
 
 function groupFields(fields) {
@@ -576,116 +706,6 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-async function openEditor(focusKey = "") {
-  const detail = state.selectedDetail;
-  if (!detail) return;
-  const fields = normalizeFields(detail.fields || []);
-  els.editorEyebrow.textContent = state.mode === "next" ? "Next Shot" : "Shot Description";
-  els.editorTitle.textContent = shotTitle(detail.shot || {});
-  els.editorFields.innerHTML = "";
-
-  const groups = groupFields(fields);
-  for (const [section, items] of groups) {
-    const sectionEl = document.createElement("section");
-    sectionEl.className = "editor-section";
-    sectionEl.innerHTML = `<h3 class="editor-section-title">${escapeHtml(sectionLabel(section))}</h3>`;
-    for (const field of items) {
-      sectionEl.append(await renderEditorField(field));
-    }
-    els.editorFields.append(sectionEl);
-  }
-
-  if (typeof els.editorDialog.showModal === "function") {
-    els.editorDialog.showModal();
-  } else {
-    els.editorDialog.setAttribute("open", "");
-  }
-
-  if (focusKey) {
-    const target = [...els.editorFields.querySelectorAll("input, textarea")]
-      .find((item) => item.name === focusKey);
-    if (target) {
-      target.scrollIntoView({ block: "center" });
-      target.focus({ preventScroll: true });
-      target.select?.();
-    }
-  }
-}
-
-async function renderEditorField(field) {
-  const wrap = document.createElement("div");
-  wrap.className = `edit-field ${field.data_type === "number" ? "edit-field-number" : ""}`;
-  const id = `field-${field.key}`;
-  const label = document.createElement("label");
-  label.setAttribute("for", id);
-  label.textContent = fieldLabel(field);
-  wrap.append(label);
-
-  let input;
-  if (field.data_type === "long_text" || field.data_type === "complex") {
-    input = document.createElement("textarea");
-    input.value = cleanValue(field.value);
-  } else {
-    input = document.createElement("input");
-    input.value = cleanValue(field.value);
-    input.type = field.data_type === "number" ? "number" : "text";
-    if (field.data_type === "number") {
-      input.inputMode = "decimal";
-      if (field.min !== null && field.min !== undefined) input.min = field.min;
-      if (field.max !== null && field.max !== undefined) input.max = field.max;
-      input.step = field.smallincrement || "any";
-    }
-    if (field.data_type === "category") {
-      const listId = `${id}-values`;
-      input.setAttribute("list", listId);
-      const datalist = document.createElement("datalist");
-      datalist.id = listId;
-      const values = await getCategoryValues(field.key);
-      datalist.innerHTML = values.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
-      wrap.append(datalist);
-    }
-  }
-  input.id = id;
-  input.name = field.key;
-  input.dataset.type = field.data_type || "text";
-
-  if (field.data_type === "number") {
-    const control = document.createElement("div");
-    control.className = "number-control";
-    const decrement = document.createElement("button");
-    decrement.type = "button";
-    decrement.className = "step-button";
-    decrement.textContent = "-";
-    decrement.setAttribute("aria-label", `Decrease ${fieldLabel(field)}`);
-    decrement.addEventListener("click", () => adjustNumber(input, field, -1));
-    const increment = document.createElement("button");
-    increment.type = "button";
-    increment.className = "step-button";
-    increment.textContent = "+";
-    increment.setAttribute("aria-label", `Increase ${fieldLabel(field)}`);
-    increment.addEventListener("click", () => adjustNumber(input, field, 1));
-    control.append(decrement, input, increment);
-    wrap.append(control);
-  } else {
-    wrap.append(input);
-  }
-
-  const meta = document.createElement("div");
-  meta.className = "edit-field-meta";
-  const unit = cleanValue(field.measure_unit);
-  meta.innerHTML = `<span>${escapeHtml(unit ? `Unit: ${unit}` : titleFromKey(field.key))}</span>`;
-  const clear = document.createElement("button");
-  clear.type = "button";
-  clear.textContent = "Clear";
-  clear.addEventListener("click", () => {
-    input.value = "";
-    input.focus();
-  });
-  meta.append(clear);
-  wrap.append(meta);
-  return wrap;
-}
-
 function adjustNumber(input, field, direction) {
   const step = Number(field.smallincrement) || 1;
   const decimals = Number.isFinite(Number(field.n_decimals)) ? Number(field.n_decimals) : decimalPlaces(step);
@@ -716,23 +736,25 @@ async function getCategoryValues(field) {
   }
 }
 
-async function saveEditor() {
-  if (!state.selectedDetail) return;
+async function saveInlineEdits() {
+  if (!state.selectedDetail || state.dirtyValues.size === 0) return;
   const fields = {};
-  for (const input of els.editorFields.querySelectorAll("input, textarea")) {
-    if (input.dataset.type === "number") {
-      fields[input.name] = input.value === "" ? "" : Number(input.value);
+  for (const [name, entry] of state.dirtyValues.entries()) {
+    if (entry.type === "number") {
+      fields[name] = entry.value === "" ? "" : Number(entry.value);
     } else {
-      fields[input.name] = input.value;
+      fields[name] = entry.value;
     }
   }
+
+  els.editButton.disabled = true;
+  els.editButton.textContent = "Saving...";
 
   if (state.demo) {
     const existing = state.selectedDetail.fields || [];
     state.selectedDetail.fields = existing.map((field) => ({ ...field, value: fields[field.name] ?? field.value }));
     Object.assign(state.selectedDetail.shot, fields);
     renderDetail(state.selectedDetail);
-    els.editorDialog.close();
     return;
   }
 
@@ -741,9 +763,8 @@ async function saveEditor() {
     method: "PATCH",
     body: JSON.stringify({ fields }),
   });
-  state.selectedDetail = data;
-  renderDetail(data);
-  els.editorDialog.close();
+  state.selectedDetail = normalizeDetail(data);
+  renderDetail(state.selectedDetail);
   if (state.mode === "history") await loadShots();
 }
 
@@ -794,9 +815,9 @@ els.refreshButton.addEventListener("click", () => loadShots().catch((error) => {
 }));
 els.historyTab.addEventListener("click", () => setMode("history"));
 els.nextTab.addEventListener("click", () => setMode("next"));
-els.editButton.addEventListener("click", openEditor);
-els.saveButton.addEventListener("click", () => saveEditor().catch((error) => {
+els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) => {
   els.connectionState.textContent = error.message;
+  updateSaveButton();
 }));
 window.addEventListener("resize", () => {
   if (state.selectedDetail) drawChart(state.selectedDetail.series || {});

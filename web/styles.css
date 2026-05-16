@@ -128,6 +128,13 @@ h3 {
   font-weight: 760;
 }
 
+.primary-button:disabled {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: default;
+}
+
 .secondary-button {
   background: var(--surface);
   color: var(--text);
@@ -404,131 +411,67 @@ h3 {
 
 .field-list {
   display: grid;
-  gap: 10px;
-}
-
-.field-row {
-  display: grid;
-  grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
-  gap: 10px;
-  align-items: baseline;
-  width: 100%;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  padding: 8px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.field-row:hover,
-.field-row:focus-visible {
-  background: var(--surface-strong);
-  outline: none;
-}
-
-.field-name {
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 740;
-}
-
-.field-value {
-  min-width: 0;
-  color: var(--text);
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-}
-
-.editor-dialog {
-  width: min(760px, calc(100vw - 24px));
-  max-height: min(88vh, 980px);
-  border: 0;
-  border-radius: 8px;
-  padding: 0;
-  background: transparent;
-}
-
-.editor-dialog::backdrop {
-  background: rgba(24, 33, 38, 0.38);
-}
-
-.editor-surface {
-  display: grid;
-  max-height: min(88vh, 980px);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 22px 80px rgba(24, 33, 38, 0.22);
-}
-
-.editor-header,
-.editor-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.editor-actions {
-  border-top: 1px solid var(--line);
-  border-bottom: 0;
-  justify-content: flex-end;
-}
-
-.editor-fields {
-  display: grid;
-  gap: 14px;
-  overflow: auto;
-  padding: 14px;
-}
-
-.editor-section {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.editor-section-title {
-  grid-column: 1 / -1;
-  margin: 6px 0 0;
-  color: var(--teal-dark);
-  font-size: 0.82rem;
-  font-weight: 820;
-  text-transform: uppercase;
-}
-
-.edit-field {
+.inline-field {
   display: grid;
-  gap: 6px;
-  align-content: start;
+  gap: 7px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfd;
   padding: 10px;
 }
 
-.edit-field label {
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 740;
+.inline-field.dirty {
+  border-color: var(--teal);
+  box-shadow: inset 3px 0 0 var(--teal);
 }
 
-.edit-field input,
-.edit-field textarea,
-.edit-field select {
+.inline-field label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.inline-field input,
+.inline-field textarea {
   width: 100%;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--surface);
   color: var(--text);
-  padding: 10px 12px;
+  padding: 9px 11px;
   outline: none;
+}
+
+.inline-field textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.inline-field input:focus,
+.inline-field textarea:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(8, 127, 140, 0.14);
+}
+
+.inline-field-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.inline-field-meta button {
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--teal-dark);
+  font-weight: 760;
 }
 
 .number-control {
@@ -545,34 +488,6 @@ h3 {
   color: var(--text);
   font-size: 1.2rem;
   font-weight: 820;
-}
-
-.edit-field-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.76rem;
-}
-
-.edit-field-meta button {
-  min-height: 30px;
-  border: 0;
-  background: transparent;
-  color: var(--teal-dark);
-  font-weight: 760;
-}
-
-.edit-field textarea {
-  min-height: 96px;
-  resize: vertical;
-}
-
-.edit-field input:focus,
-.edit-field textarea:focus {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(8, 127, 140, 0.14);
 }
 
 .empty-state {
@@ -696,23 +611,4 @@ h3 {
     font-size: 1.05rem;
   }
 
-  .field-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-
-  .editor-dialog {
-    width: 100vw;
-    max-height: 92vh;
-    margin: auto 0 0;
-  }
-
-  .editor-surface {
-    max-height: 92vh;
-    border-radius: 8px 8px 0 0;
-  }
-
-  .editor-section {
-    grid-template-columns: 1fr;
-  }
 }

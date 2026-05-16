@@ -48,7 +48,7 @@
               <h2 id="selectedTitle">Shot history</h2>
               <p id="selectedSubtitle" class="subtitle">Your saved Decent espresso shots will appear here.</p>
             </div>
-            <button id="editButton" class="primary-button" type="button">Edit Values</button>
+            <button id="editButton" class="primary-button" type="button" disabled>Saved</button>
           </div>
 
           <div class="metrics-strip" id="metricsStrip"></div>
@@ -62,25 +62,6 @@
         </section>
       </main>
     </div>
-
-    <dialog class="editor-dialog" id="editorDialog">
-      <form method="dialog" class="editor-surface" id="editorForm">
-        <header class="editor-header">
-          <div>
-            <p class="eyebrow" id="editorEyebrow">Edit</p>
-            <h2 id="editorTitle">Description Values</h2>
-          </div>
-          <button class="icon-button" value="cancel" type="submit" aria-label="Close editor" title="Close editor">
-            <span aria-hidden="true">x</span>
-          </button>
-        </header>
-        <div class="editor-fields" id="editorFields"></div>
-        <footer class="editor-actions">
-          <button class="secondary-button" value="cancel" type="submit">Cancel</button>
-          <button class="primary-button" id="saveButton" type="button">Save Changes</button>
-        </footer>
-      </form>
-    </dialog>
 
     <script src="./app.js" defer></script>
   </body>

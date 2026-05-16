@@ -9,7 +9,7 @@ catch { package require json::write }
 namespace eval ::plugins::DYE_Web {
 	variable author "Gilad Gershtein"
 	variable contact "genager@gmail.com"
-	variable version 0.7
+	variable version 0.8
 	variable github_repo ""
 	variable name "DYE Web"
 	variable description "Serves a modern mobile web interface for DYE/SDB shot history and description metadata."

@@ -100,6 +100,10 @@ h3 {
   gap: 8px;
 }
 
+.refresh-button {
+  min-width: 92px;
+}
+
 .icon-button,
 .primary-button,
 .secondary-button,
@@ -428,10 +432,41 @@ h3 {
   box-shadow: inset 3px 0 0 var(--teal);
 }
 
-.inline-field label {
+.inline-field label,
+.field-label {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 760;
+}
+
+.link-field {
+  gap: 8px;
+}
+
+.inline-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid rgba(8, 127, 140, 0.24);
+  border-radius: 8px;
+  background: rgba(8, 127, 140, 0.08);
+  color: var(--teal-dark);
+  padding: 0 12px;
+  font-weight: 780;
+  text-decoration: none;
+}
+
+.inline-link:focus-visible {
+  outline: 3px solid rgba(8, 127, 140, 0.18);
+  outline-offset: 2px;
+}
+
+.read-only-value {
+  min-height: 44px;
+  color: var(--muted);
+  line-height: 44px;
 }
 
 .inline-field input,
@@ -513,22 +548,20 @@ h3 {
     position: static;
     width: 100%;
     max-width: calc(100vw - 20px);
-    max-height: none;
+    max-height: 360px;
   }
 
   .shot-list {
-    display: flex;
+    display: grid;
     width: 100%;
     max-width: 100%;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scroll-snap-type: x mandatory;
+    max-height: 306px;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .shot-card {
-    flex: 0 0 min(320px, 82vw);
-    scroll-snap-align: start;
+    min-height: 104px;
   }
 
   .detail-panel {
@@ -595,7 +628,7 @@ h3 {
   }
 
   .shot-card {
-    flex-basis: 88vw;
+    min-height: 96px;
   }
 
   .metrics-strip {

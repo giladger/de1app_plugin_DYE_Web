@@ -389,7 +389,7 @@ function renderMetadata(fields) {
     const list = document.createElement("div");
     list.className = "field-list";
     for (const field of items) {
-      list.append(renderInlineField(field));
+      list.append(isVisualizerLinkField(field) ? renderVisualizerLinkField(field) : renderInlineField(field));
     }
     block.append(list);
     els.metadataGrid.append(block);
@@ -401,6 +401,54 @@ function inferFieldType(key, value) {
   if (["grinder_dose_weight", "drink_weight", "drink_tds", "drink_ey", "espresso_enjoyment"].includes(key)) return "number";
   if (String(cleanValue(value)).length > 80 || key.includes("notes") || key.includes("links")) return "long_text";
   return "text";
+}
+
+function isVisualizerLinkField(field) {
+  const key = cleanValue(field.key);
+  const value = cleanValue(field.value);
+  return key === "visualizer_link"
+    || (key === "repository_links" && /visualizer\.coffee/i.test(value))
+    || key.toLowerCase().includes("visualizer");
+}
+
+function renderVisualizerLinkField(field) {
+  const wrap = document.createElement("div");
+  wrap.className = "inline-field link-field";
+  wrap.dataset.fieldKey = field.key;
+
+  const label = document.createElement("div");
+  label.className = "field-label";
+  label.textContent = "Visualizer";
+  wrap.append(label);
+
+  const url = extractUrl(field.value);
+  if (url) {
+    const link = document.createElement("a");
+    link.className = "inline-link";
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Open in visualizer.coffee";
+    wrap.append(link);
+
+    const meta = document.createElement("div");
+    meta.className = "inline-field-meta";
+    const urlText = document.createElement("span");
+    urlText.textContent = url;
+    meta.append(urlText);
+    wrap.append(meta);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "read-only-value";
+    empty.textContent = "-";
+    wrap.append(empty);
+  }
+  return wrap;
+}
+
+function extractUrl(value) {
+  const match = String(cleanValue(value)).match(/https?:\/\/[^\s}]+/i);
+  return match ? match[0] : "";
 }
 
 function renderInlineField(field) {

@@ -86,8 +86,8 @@ const state = {
   categoryValues: new Map(),
   originalValues: new Map(),
   dirtyValues: new Map(),
-  visualizerSync: true,
   visualizerStatus: "",
+  saving: false,
   mobileView: "list",
   demo: false,
 };
@@ -109,6 +109,8 @@ const els = {
   chartLegend: document.querySelector("#chartLegend"),
   backToShotsButton: document.querySelector("#backToShotsButton"),
   editButton: document.querySelector("#editButton"),
+  floatingSaveButton: document.querySelector("#floatingSaveButton"),
+  floatingSaveCount: document.querySelector("#floatingSaveCount"),
 };
 
 const mobileQuery = window.matchMedia("(max-width: 900px)");
@@ -571,21 +573,6 @@ function renderVisualizerLinkField(field) {
     wrap.append(meta);
 
     if (state.mode === "history") {
-      const sync = document.createElement("label");
-      sync.className = "visualizer-sync";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = state.visualizerSync;
-      checkbox.addEventListener("change", () => {
-        state.visualizerSync = checkbox.checked;
-        state.visualizerStatus = checkbox.checked ? "" : "Visualizer sync is off";
-        updateVisualizerStatus();
-      });
-      const syncText = document.createElement("span");
-      syncText.textContent = "Sync edits to Visualizer";
-      sync.append(checkbox, syncText);
-      wrap.append(sync);
-
       const status = document.createElement("div");
       status.className = "visualizer-sync-status";
       status.textContent = state.visualizerStatus;
@@ -730,8 +717,16 @@ function markDirty(field, value, input) {
 
 function updateSaveButton() {
   const count = state.dirtyValues.size;
-  els.editButton.textContent = count ? `Save ${count} change${count === 1 ? "" : "s"}` : "Saved";
-  els.editButton.disabled = count === 0;
+  const dirty = count > 0;
+  els.editButton.textContent = state.saving
+    ? "Saving..."
+    : dirty ? `Save ${count} change${count === 1 ? "" : "s"}` : "Saved";
+  els.editButton.disabled = !dirty || state.saving;
+  els.floatingSaveButton.hidden = !dirty;
+  els.floatingSaveButton.disabled = !dirty || state.saving;
+  els.floatingSaveButton.classList.toggle("saving", state.saving);
+  els.floatingSaveCount.textContent = String(count);
+  els.floatingSaveButton.setAttribute("aria-label", `Save ${count} change${count === 1 ? "" : "s"}`);
 }
 
 function groupFields(fields) {
@@ -955,7 +950,7 @@ async function getCategoryValues(field) {
 }
 
 async function saveInlineEdits() {
-  if (!state.selectedDetail || state.dirtyValues.size === 0) return;
+  if (!state.selectedDetail || state.dirtyValues.size === 0 || state.saving) return;
   const fields = {};
   for (const [name, entry] of state.dirtyValues.entries()) {
     if (entry.type === "number") {
@@ -964,32 +959,37 @@ async function saveInlineEdits() {
       fields[name] = entry.value;
     }
   }
-  const syncVisualizer = state.mode === "history" && state.visualizerSync && hasVisualizerLink();
+  const syncVisualizer = state.mode === "history" && hasVisualizerLink();
 
-  els.editButton.disabled = true;
-  els.editButton.textContent = syncVisualizer ? "Saving + syncing..." : "Saving...";
+  state.saving = true;
+  updateSaveButton();
   if (syncVisualizer) {
-    state.visualizerStatus = "Will sync after the local save";
+    state.visualizerStatus = "Will sync to Visualizer after the local save";
     updateVisualizerStatus();
   }
 
-  if (state.demo) {
-    const existing = state.selectedDetail.fields || [];
-    state.selectedDetail.fields = existing.map((field) => ({ ...field, value: fields[field.name] ?? field.value }));
-    Object.assign(state.selectedDetail.shot, fields);
-    renderDetail(state.selectedDetail);
-    return;
-  }
+  try {
+    if (state.demo) {
+      const existing = state.selectedDetail.fields || [];
+      state.selectedDetail.fields = existing.map((field) => ({ ...field, value: fields[field.name] ?? field.value }));
+      Object.assign(state.selectedDetail.shot, fields);
+      renderDetail(state.selectedDetail);
+      return;
+    }
 
-  const url = state.mode === "next" ? API.next : API.shot(state.selectedClock);
-  const data = await fetchJson(url, {
-    method: "PATCH",
-    body: JSON.stringify({ fields }),
-  });
-  state.selectedDetail = normalizeDetail(data);
-  renderDetail(state.selectedDetail);
-  if (state.mode === "history") await loadShots();
-  if (syncVisualizer) await syncVisualizerEdits(fields);
+    const url = state.mode === "next" ? API.next : API.shot(state.selectedClock);
+    const data = await fetchJson(url, {
+      method: "PATCH",
+      body: JSON.stringify({ fields }),
+    });
+    state.selectedDetail = normalizeDetail(data);
+    renderDetail(state.selectedDetail);
+    if (state.mode === "history") await loadShots();
+    if (syncVisualizer) await syncVisualizerEdits(fields);
+  } finally {
+    state.saving = false;
+    updateSaveButton();
+  }
 }
 
 async function syncVisualizerEdits(fields) {
@@ -1070,6 +1070,12 @@ els.backToShotsButton.addEventListener("click", () => {
 });
 els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) => {
   els.connectionState.textContent = error.message;
+  state.saving = false;
+  updateSaveButton();
+}));
+els.floatingSaveButton.addEventListener("click", () => saveInlineEdits().catch((error) => {
+  els.connectionState.textContent = error.message;
+  state.saving = false;
   updateSaveButton();
 }));
 mobileQuery.addEventListener("change", () => {

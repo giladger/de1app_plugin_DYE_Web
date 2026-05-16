@@ -145,6 +145,62 @@ h3 {
   cursor: default;
 }
 
+.floating-save-button {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--teal);
+  color: #fff;
+  box-shadow: 0 16px 34px rgba(8, 127, 140, 0.28);
+}
+
+.floating-save-button[hidden] {
+  display: none;
+}
+
+.floating-save-button:disabled {
+  opacity: 0.76;
+}
+
+.floating-save-button svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.floating-save-button.saving svg {
+  opacity: 0.58;
+}
+
+.floating-save-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: var(--coral);
+  color: #fff;
+  padding: 0 6px;
+  font-size: 0.74rem;
+  font-weight: 820;
+  line-height: 1;
+}
+
 .secondary-button {
   background: var(--surface);
   color: var(--text);
@@ -488,25 +544,6 @@ h3 {
 .inline-link:focus-visible {
   outline: 3px solid rgba(8, 127, 140, 0.18);
   outline-offset: 2px;
-}
-
-.visualizer-sync {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  width: fit-content;
-  color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 720;
-}
-
-.visualizer-sync input {
-  width: 18px;
-  height: 18px;
-  min-height: auto;
-  margin: 0;
-  accent-color: var(--teal);
 }
 
 .visualizer-sync-status {

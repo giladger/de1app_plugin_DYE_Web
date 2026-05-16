@@ -5,12 +5,11 @@
 
 package require json
 catch { package require json::write }
-catch { package require zint }
 
 namespace eval ::plugins::DYE_Web {
 	variable author "Gilad Gershtein"
 	variable contact "genager@gmail.com"
-	variable version 0.3
+	variable version 0.4
 	variable github_repo ""
 	variable name "DYE Web"
 	variable description "Serves a modern mobile web interface for DYE/SDB shot history and description metadata."
@@ -1040,107 +1039,38 @@ namespace eval ::dui::pages::DYE_Web_settings {
 	variable widgets
 	array set widgets {}
 	variable url_text ""
-	variable qr_status_text ""
 
 	proc setup {} {
 		::plugins::DYE_Web::check_settings
 		set page [namespace tail [namespace current]]
 		dui add dtext $page 180 180 -tags title -text "DYE Web" -font Helv_10_bold -fill "#333333"
-		dui add dtext $page 180 300 -tags url -textvariable ::dui::pages::DYE_Web_settings::url_text -font Helv_8 -fill "#444444" -width 1500
+		dui add dtext $page 180 300 -tags url -textvariable ::dui::pages::DYE_Web_settings::url_text -font Helv_8 -fill "#444444" -width 1900
 		dui add entry $page 180 480 -tags port -textvariable ::plugins::DYE_Web::settings(port) -width 8 \
 			-label "Port" -label_pos {180 420} -label_font Helv_7 -label_fill "#444444"
 		dui add entry $page 180 660 -tags token -textvariable ::plugins::DYE_Web::settings(access_token) -width 32 \
 			-label "Access token" -label_pos {180 600} -label_font Helv_7 -label_fill "#444444"
 		dui add dcheckbox $page 180 800 -tags require_token -textvariable ::plugins::DYE_Web::settings(require_token) \
-			-label "Require token for API access" -command ::dui::pages::DYE_Web_settings::update_url_qr
+			-label "Require token for API access" -command ::dui::pages::DYE_Web_settings::update_url
 		dui add dbutton $page 180 980 -tags restart -label "Restart web server" -style insight_ok \
 			-command ::dui::pages::DYE_Web_settings::restart
 		dui add dbutton $page 180 1160 -tags done -label "Done" -style insight_ok \
 			-command ::dui::pages::DYE_Web_settings::page_done
-
-		set qr_image [ensure_qr_image]
-		if { $qr_image ne "" } {
-			dui add image $page 1880 730 {} -tags qr
-			dui item config $page qr -image $qr_image
-		}
-		dui add dtext $page 1530 1260 -tags qr_status -textvariable ::dui::pages::DYE_Web_settings::qr_status_text \
-			-font Helv_7 -fill "#666666" -width 820 -justify center
 	}
 
 	proc load { page_to_hide page_to_show args } {
-		update_url_qr
+		update_url
 	}
 
-	proc qr_image_name {} {
-		return [namespace current]::qr_img
-	}
-
-	proc scaled_x { value } {
-		if { [llength [info commands ::dui::platform::rescale_x]] > 0 } {
-			return [::dui::platform::rescale_x $value]
-		}
-		return $value
-	}
-
-	proc scaled_y { value } {
-		if { [llength [info commands ::dui::platform::rescale_y]] > 0 } {
-			return [::dui::platform::rescale_y $value]
-		}
-		return $value
-	}
-
-	proc ensure_qr_image {} {
-		if { [llength [info commands image]] == 0 } {
-			return ""
-		}
-		set qr_image [qr_image_name]
-		if { [lsearch -exact [image names] $qr_image] < 0 } {
-			catch {
-				image create photo $qr_image -width [scaled_x 900] -height [scaled_y 900]
-			}
-		}
-		if { [lsearch -exact [image names] $qr_image] >= 0 } {
-			return $qr_image
-		}
-		return ""
-	}
-
-	proc blank_qr_image {} {
-		set qr_image [ensure_qr_image]
-		if { $qr_image ne "" } {
-			catch { $qr_image blank }
-		}
-	}
-
-	proc update_url_qr {} {
+	proc update_url {} {
 		variable url_text
-		variable qr_status_text
 
 		set url_text "Open [::plugins::DYE_Web::web_url] from your phone on the same Wi-Fi."
-		set qr_image [ensure_qr_image]
-		if { $qr_image eq "" } {
-			set qr_status_text "Use the URL on the left."
-			return
-		}
-		if { [catch { package present zint } err] } {
-			blank_qr_image
-			set qr_status_text "QR requires the zint package; use the URL on the left."
-			return
-		}
-		if { [catch {
-			zint encode [::plugins::DYE_Web::web_url] $qr_image -barcode QR -scale 2.4
-		} err] } {
-			blank_qr_image
-			set qr_status_text "Could not generate QR; use the URL on the left."
-			return
-		}
-		set qr_status_text "Scan to open DYE Web"
 	}
 
 	proc restart {} {
 		plugins save_settings DYE_Web
 		::plugins::DYE_Web::start_server
-		update_url_qr
+		update_url
 		popup [translate_toast "DYE Web restarted"]
 	}
 

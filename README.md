@@ -42,7 +42,7 @@ By default the plugin listens on:
 http://<tablet-ip>:8787/
 ```
 
-The settings page shows the phone URL and a QR code, lets you change the port, restart the server, and optionally require an API token.
+The settings page shows the phone URL, lets you change the port, restart the server, and optionally require an API token.
 
 ## Notes
 

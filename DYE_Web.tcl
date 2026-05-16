@@ -9,7 +9,7 @@ catch { package require json::write }
 namespace eval ::plugins::DYE_Web {
 	variable author "Gilad Gershtein"
 	variable contact "genager@gmail.com"
-	variable version 0.4
+	variable version 0.5
 	variable github_repo ""
 	variable name "DYE Web"
 	variable description "Serves a modern mobile web interface for DYE/SDB shot history and description metadata."
@@ -65,11 +65,9 @@ proc ::plugins::DYE_Web::msg { args } {
 }
 
 proc ::plugins::DYE_Web::preload {} {
-	package require de1_dui 1.0
 	check_settings
 	plugins save_settings DYE_Web
-	dui page add DYE_Web_settings -namespace true -theme default -type fpdialog
-	return DYE_Web_settings
+	return ""
 }
 
 proc ::plugins::DYE_Web::main {} {
@@ -1033,50 +1031,4 @@ proc ::plugins::DYE_Web::json_nullable_number { value } {
 		return $value
 	}
 	return "null"
-}
-
-namespace eval ::dui::pages::DYE_Web_settings {
-	variable widgets
-	array set widgets {}
-	variable url_text ""
-
-	proc setup {} {
-		::plugins::DYE_Web::check_settings
-		set page [namespace tail [namespace current]]
-		dui add dtext $page 180 180 -tags title -text "DYE Web" -font Helv_10_bold -fill "#333333"
-		dui add dtext $page 180 300 -tags url -textvariable ::dui::pages::DYE_Web_settings::url_text -font Helv_8 -fill "#444444" -width 1900
-		dui add entry $page 180 480 -tags port -textvariable ::plugins::DYE_Web::settings(port) -width 8 \
-			-label "Port" -label_pos {180 420} -label_font Helv_7 -label_fill "#444444"
-		dui add entry $page 180 660 -tags token -textvariable ::plugins::DYE_Web::settings(access_token) -width 32 \
-			-label "Access token" -label_pos {180 600} -label_font Helv_7 -label_fill "#444444"
-		dui add dcheckbox $page 180 800 -tags require_token -textvariable ::plugins::DYE_Web::settings(require_token) \
-			-label "Require token for API access" -command ::dui::pages::DYE_Web_settings::update_url
-		dui add dbutton $page 180 980 -tags restart -label "Restart web server" -style insight_ok \
-			-command ::dui::pages::DYE_Web_settings::restart
-		dui add dbutton $page 180 1160 -tags done -label "Done" -style insight_ok \
-			-command ::dui::pages::DYE_Web_settings::page_done
-	}
-
-	proc load { page_to_hide page_to_show args } {
-		update_url
-	}
-
-	proc update_url {} {
-		variable url_text
-
-		set url_text "Open [::plugins::DYE_Web::web_url] from your phone on the same Wi-Fi."
-	}
-
-	proc restart {} {
-		plugins save_settings DYE_Web
-		::plugins::DYE_Web::start_server
-		update_url
-		popup [translate_toast "DYE Web restarted"]
-	}
-
-	proc page_done {} {
-		plugins save_settings DYE_Web
-		dui say [translate {Done}] button_in
-		dui page close_dialog
-	}
 }

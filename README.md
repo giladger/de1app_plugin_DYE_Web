@@ -42,7 +42,7 @@ By default the plugin listens on:
 http://<tablet-ip>:8787/
 ```
 
-The settings page shows the phone URL, lets you change the port, restart the server, and optionally require an API token.
+This build does not expose a DE1app settings page. The server starts with the default port above.
 
 ## Notes
 

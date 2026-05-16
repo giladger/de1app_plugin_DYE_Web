@@ -10,7 +10,7 @@ catch { package require zint }
 namespace eval ::plugins::DYE_Web {
 	variable author "OpenAI Codex"
 	variable contact ""
-	variable version 0.1
+	variable version 0.2
 	variable github_repo ""
 	variable name "DYE Web"
 	variable description "Serves a modern mobile web interface for DYE/SDB shot history and description metadata."
@@ -20,6 +20,22 @@ namespace eval ::plugins::DYE_Web {
 	variable server {}
 	variable clients
 	array set clients {}
+	variable settings
+	if { ![array exists settings] } {
+		array set settings {}
+	}
+	foreach {setting_name setting_default} [list \
+		version $version \
+		enabled 1 \
+		bind_address "0.0.0.0" \
+		port 8787 \
+		require_token 0 \
+		access_token "" \
+	] {
+		if { ![info exists settings($setting_name)] } {
+			set settings($setting_name) $setting_default
+		}
+	}
 
 	variable default_fields {
 		bean_brand bean_type roast_date roast_level bean_notes
@@ -119,6 +135,7 @@ proc ::plugins::DYE_Web::start_server {} {
 	variable settings
 	variable server
 
+	check_settings
 	if { ![string is true $settings(enabled)] } {
 		msg -INFO "DYE Web is disabled"
 		return
@@ -193,6 +210,7 @@ proc ::plugins::DYE_Web::local_ip {} {
 proc ::plugins::DYE_Web::web_url {} {
 	variable settings
 
+	check_settings
 	set url "http://[local_ip]:$settings(port)/"
 	if { [string is true $settings(require_token)] } {
 		append url "?token=$settings(access_token)"
@@ -318,6 +336,8 @@ proc ::plugins::DYE_Web::handle_request { chan request } {
 
 proc ::plugins::DYE_Web::authorized { request } {
 	variable settings
+
+	check_settings
 	if { ![string is true $settings(require_token)] } {
 		return 1
 	}
@@ -408,6 +428,7 @@ proc ::plugins::DYE_Web::api_status {} {
 	variable settings
 	variable version
 
+	check_settings
 	set sdb_ok [expr {[namespace which -command ::plugins::SDB::get_db] ne ""}]
 	set dye_ok [expr {[namespace exists ::plugins::DYE] && [namespace which -command ::plugins::DYE::shots::get_next] ne ""}]
 	set count 0
@@ -1023,6 +1044,7 @@ namespace eval ::dui::pages::DYE_Web_settings {
 	variable qr_status_text ""
 
 	proc setup {} {
+		::plugins::DYE_Web::check_settings
 		set page [namespace tail [namespace current]]
 		dui add dtext $page 180 180 -tags title -text "DYE Web" -font Helv_10_bold -fill "#333333"
 		dui add dtext $page 180 300 -tags url -textvariable ::dui::pages::DYE_Web_settings::url_text -font Helv_8 -fill "#444444" -width 1500

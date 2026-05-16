@@ -85,6 +85,7 @@ const state = {
   categoryValues: new Map(),
   originalValues: new Map(),
   dirtyValues: new Map(),
+  mobileView: "list",
   demo: false,
 };
 
@@ -103,8 +104,11 @@ const els = {
   metadataGrid: document.querySelector("#metadataGrid"),
   shotChart: document.querySelector("#shotChart"),
   chartLegend: document.querySelector("#chartLegend"),
+  backToShotsButton: document.querySelector("#backToShotsButton"),
   editButton: document.querySelector("#editButton"),
 };
+
+const mobileQuery = window.matchMedia("(max-width: 900px)");
 
 function cleanValue(value) {
   if (value === null || value === undefined) return "";
@@ -213,7 +217,37 @@ async function fetchJson(url, options = {}) {
   return json;
 }
 
+function isMobileLayout() {
+  return mobileQuery.matches;
+}
+
+function setMobileView(view, options = {}) {
+  state.mobileView = view;
+  applyResponsiveView();
+  if (isMobileLayout() && options.scroll !== false) {
+    window.scrollTo({ top: 0, behavior: options.instant ? "auto" : "smooth" });
+  }
+  if (view === "detail" && state.selectedDetail) {
+    requestAnimationFrame(() => drawChart(state.selectedDetail.series || {}));
+  }
+}
+
+function applyResponsiveView() {
+  const mobile = isMobileLayout();
+  const detail = state.mobileView === "detail" || state.mode === "next";
+  document.body.classList.toggle("mobile-list-view", mobile && !detail);
+  document.body.classList.toggle("mobile-detail-view", mobile && detail);
+  els.backToShotsButton.hidden = !(mobile && state.mode === "history" && detail);
+}
+
+async function selectFirstShotForWideLayout() {
+  if (!isMobileLayout() && state.mode === "history" && !state.selectedDetail && state.shots.length) {
+    await selectShot(state.selectedClock || state.shots[0].clock, { showDetail: false });
+  }
+}
+
 async function loadApp() {
+  applyResponsiveView();
   try {
     const [status, schema] = await Promise.all([fetchJson(API.status), fetchJson(API.schema)]);
     state.demo = false;
@@ -226,7 +260,11 @@ async function loadApp() {
     state.shots = DEMO_SHOTS.map(normalizeShot);
     els.connectionState.textContent = "Preview data";
     renderShotList();
-    await selectShot(DEMO_SHOTS[0].clock);
+    if (isMobileLayout()) {
+      renderEmptyDetail();
+    } else {
+      await selectShot(DEMO_SHOTS[0].clock, { showDetail: false });
+    }
   }
 }
 
@@ -241,8 +279,11 @@ async function loadShots() {
       ? DEMO_SHOTS.filter((shot) => JSON.stringify(shot).toLowerCase().includes(needle))
       : DEMO_SHOTS;
     renderShotList();
-    if (state.shots.length) await selectShot(state.shots[0].clock);
-    else renderEmptyDetail();
+    if (state.shots.length && (!isMobileLayout() || state.mobileView === "detail")) {
+      await selectShot(state.selectedClock || state.shots[0].clock, { showDetail: state.mobileView === "detail" });
+    } else {
+      renderEmptyDetail();
+    }
     return;
   }
   const params = new URLSearchParams({ limit: "500" });
@@ -255,7 +296,11 @@ async function loadShots() {
     const clock = state.selectedClock && state.shots.some((shot) => shot.clock === state.selectedClock)
       ? state.selectedClock
       : state.shots[0].clock;
-    await selectShot(clock);
+    if (isMobileLayout() && state.mobileView === "list") {
+      renderEmptyDetail();
+    } else {
+      await selectShot(clock, { showDetail: state.mobileView === "detail" });
+    }
   } else {
     renderEmptyDetail();
   }
@@ -268,6 +313,7 @@ async function loadNext() {
   state.selectedClock = "next";
   state.selectedDetail = normalizeDetail(data);
   renderDetail(state.selectedDetail);
+  setMobileView("detail", { instant: true, scroll: false });
 }
 
 function renderShotList() {
@@ -297,7 +343,7 @@ function renderShotList() {
   els.shotList.append(fragment);
 }
 
-async function selectShot(clock) {
+async function selectShot(clock, options = {}) {
   state.selectedClock = clock;
   renderShotList();
   let data;
@@ -314,6 +360,9 @@ async function selectShot(clock) {
   }
   state.selectedDetail = normalizeDetail(data);
   renderDetail(state.selectedDetail);
+  if (state.mode === "history" && isMobileLayout() && options.showDetail !== false) {
+    setMobileView("detail");
+  }
 }
 
 function renderEmptyDetail() {
@@ -374,6 +423,13 @@ function normalizeFields(fields) {
       value: cleanValue(field.value),
     });
   }
+  for (const field of normalized) {
+    if (isVisualizerLinkField(field)) {
+      field.name = "Visualizer";
+      field.short_name = "Visualizer";
+      field.section = "links";
+    }
+  }
   return normalized;
 }
 
@@ -406,9 +462,12 @@ function inferFieldType(key, value) {
 function isVisualizerLinkField(field) {
   const key = cleanValue(field.key);
   const value = cleanValue(field.value);
-  return key === "visualizer_link"
-    || (key === "repository_links" && /visualizer\.coffee/i.test(value))
-    || key.toLowerCase().includes("visualizer");
+  return isVisualizerKey(key) || (key === "repository_links" && /visualizer\.coffee/i.test(value));
+}
+
+function isVisualizerKey(key) {
+  const cleaned = cleanValue(key).toLowerCase();
+  return cleaned === "visualizer_link" || cleaned.includes("visualizer");
 }
 
 function renderVisualizerLinkField(field) {
@@ -570,14 +629,18 @@ function updateSaveButton() {
 }
 
 function groupFields(fields) {
-  const order = ["beans", "equipment", "extraction", "tasting", "people", "beverage", "description"];
+  const order = ["links", "beans", "equipment", "extraction", "tasting", "people", "beverage", "description"];
   const map = new Map();
   for (const field of fields) {
     const section = cleanValue(field.section) || "description";
     if (!map.has(section)) map.set(section, []);
     map.get(section).push(field);
   }
-  return [...map.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+  return [...map.entries()].sort((a, b) => {
+    const ai = order.includes(a[0]) ? order.indexOf(a[0]) : order.length;
+    const bi = order.includes(b[0]) ? order.indexOf(b[0]) : order.length;
+    return ai - bi || a[0].localeCompare(b[0]);
+  });
 }
 
 function sectionLabel(section) {
@@ -589,6 +652,7 @@ function sectionLabel(section) {
     tasting: "Tasting",
     people: "People",
     beverage: "Beverage",
+    links: "Links",
     description: "Description",
   };
   return labels[cleaned] || cleaned.replace(/_/g, " ");
@@ -829,6 +893,11 @@ function escapeHtml(value) {
 function setMode(mode) {
   state.mode = mode;
   state.selectedClock = null;
+  if (mode === "history") {
+    setMobileView("list", { instant: true, scroll: false });
+  } else {
+    setMobileView("detail", { instant: true, scroll: false });
+  }
   els.historyTab.classList.toggle("active", mode === "history");
   els.nextTab.classList.toggle("active", mode === "next");
   els.historyTab.setAttribute("aria-selected", mode === "history" ? "true" : "false");
@@ -844,6 +913,7 @@ function setMode(mode) {
     els.shotList.innerHTML = `<div class="empty-state">Next Shot plan</div>`;
     els.shotCount.textContent = "Next Shot";
     renderDetail(state.selectedDetail);
+    setMobileView("detail", { instant: true, scroll: false });
   } else {
     loadShots().catch((error) => {
       els.connectionState.textContent = error.message;
@@ -863,11 +933,19 @@ els.refreshButton.addEventListener("click", () => loadShots().catch((error) => {
 }));
 els.historyTab.addEventListener("click", () => setMode("history"));
 els.nextTab.addEventListener("click", () => setMode("next"));
+els.backToShotsButton.addEventListener("click", () => setMobileView("list"));
 els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) => {
   els.connectionState.textContent = error.message;
   updateSaveButton();
 }));
+mobileQuery.addEventListener("change", () => {
+  applyResponsiveView();
+  selectFirstShotForWideLayout().catch((error) => {
+    els.connectionState.textContent = error.message;
+  });
+});
 window.addEventListener("resize", () => {
+  applyResponsiveView();
   if (state.selectedDetail) drawChart(state.selectedDetail.series || {});
 });
 

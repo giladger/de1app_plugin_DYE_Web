@@ -326,6 +326,16 @@ h3 {
   display: none;
 }
 
+.back-link {
+  min-height: 36px;
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  color: var(--teal-dark);
+  padding: 0;
+  font-weight: 820;
+}
+
 .shot-title-block {
   min-width: 0;
   width: 100%;
@@ -609,14 +619,17 @@ h3 {
   }
 
   .detail-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
   }
 
   body.mobile-detail-view .mobile-back-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .shot-hero .primary-button {
+    width: 100%;
   }
 
   .shot-title-block,

@@ -221,6 +221,37 @@ function isMobileLayout() {
   return mobileQuery.matches;
 }
 
+function routeFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    shot: cleanValue(params.get("shot")),
+    view: cleanValue(params.get("view")),
+  };
+}
+
+function writeRoute(changes = {}, options = {}) {
+  const url = new URL(window.location.href);
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === null || value === undefined || value === "") url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+  }
+  const stateObj = {
+    shot: url.searchParams.get("shot") || "",
+    view: url.searchParams.get("view") || "",
+  };
+  const method = options.replace ? "replaceState" : "pushState";
+  window.history[method](stateObj, "", url);
+}
+
+function setModeChrome(mode) {
+  state.mode = mode;
+  els.historyTab.classList.toggle("active", mode === "history");
+  els.nextTab.classList.toggle("active", mode === "next");
+  els.historyTab.setAttribute("aria-selected", mode === "history" ? "true" : "false");
+  els.nextTab.setAttribute("aria-selected", mode === "next" ? "true" : "false");
+  els.searchInput.disabled = mode !== "history";
+}
+
 function setMobileView(view, options = {}) {
   state.mobileView = view;
   applyResponsiveView();
@@ -246,7 +277,31 @@ async function selectFirstShotForWideLayout() {
   }
 }
 
+async function applyRoute(options = {}) {
+  const route = routeFromUrl();
+  if (route.view === "next") {
+    setMode("next", { updateUrl: false });
+    return;
+  }
+
+  setModeChrome("history");
+  if (route.shot) {
+    if (!state.shots.length) {
+      await loadShots();
+      return;
+    }
+    await selectShot(route.shot, { showDetail: true, updateUrl: false, instant: options.instant });
+    return;
+  }
+
+  state.selectedClock = null;
+  renderShotList();
+  renderEmptyDetail();
+  setMobileView("list", { instant: options.instant, scroll: options.scroll });
+}
+
 async function loadApp() {
+  window.history.replaceState(routeFromUrl(), "", window.location.href);
   applyResponsiveView();
   try {
     const [status, schema] = await Promise.all([fetchJson(API.status), fetchJson(API.schema)]);
@@ -260,7 +315,10 @@ async function loadApp() {
     state.shots = DEMO_SHOTS.map(normalizeShot);
     els.connectionState.textContent = "Preview data";
     renderShotList();
-    if (isMobileLayout()) {
+    const route = routeFromUrl();
+    if (route.shot) {
+      await selectShot(route.shot, { showDetail: true, updateUrl: false, instant: true });
+    } else if (isMobileLayout()) {
       renderEmptyDetail();
     } else {
       await selectShot(DEMO_SHOTS[0].clock, { showDetail: false });
@@ -279,8 +337,11 @@ async function loadShots() {
       ? DEMO_SHOTS.filter((shot) => JSON.stringify(shot).toLowerCase().includes(needle))
       : DEMO_SHOTS;
     renderShotList();
-    if (state.shots.length && (!isMobileLayout() || state.mobileView === "detail")) {
-      await selectShot(state.selectedClock || state.shots[0].clock, { showDetail: state.mobileView === "detail" });
+    const route = routeFromUrl();
+    if (state.shots.length && route.shot) {
+      await selectShot(route.shot, { showDetail: true, updateUrl: false });
+    } else if (state.shots.length && (!isMobileLayout() || state.mobileView === "detail")) {
+      await selectShot(state.selectedClock || state.shots[0].clock, { showDetail: state.mobileView === "detail", updateUrl: false });
     } else {
       renderEmptyDetail();
     }
@@ -293,13 +354,16 @@ async function loadShots() {
   state.shots = (data.shots || []).map(normalizeShot);
   renderShotList();
   if (state.shots.length) {
-    const clock = state.selectedClock && state.shots.some((shot) => shot.clock === state.selectedClock)
-      ? state.selectedClock
-      : state.shots[0].clock;
-    if (isMobileLayout() && state.mobileView === "list") {
+    const route = routeFromUrl();
+    const routeClock = route.shot && state.shots.some((shot) => String(shot.clock) === String(route.shot)) ? route.shot : "";
+    const selectedStillVisible = state.selectedClock && state.shots.some((shot) => shot.clock === state.selectedClock);
+    const clock = routeClock || (selectedStillVisible ? state.selectedClock : state.shots[0].clock);
+    if (routeClock) {
+      await selectShot(routeClock, { showDetail: true, updateUrl: false, instant: true });
+    } else if (isMobileLayout() && state.mobileView === "list") {
       renderEmptyDetail();
     } else {
-      await selectShot(clock, { showDetail: state.mobileView === "detail" });
+      await selectShot(clock, { showDetail: state.mobileView === "detail", updateUrl: false });
     }
   } else {
     renderEmptyDetail();
@@ -327,7 +391,7 @@ function renderShotList() {
   for (const shot of state.shots) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `shot-card ${shot.clock === state.selectedClock ? "active" : ""}`;
+    button.className = `shot-card ${String(shot.clock) === String(state.selectedClock) ? "active" : ""}`;
     button.innerHTML = `
       <div class="shot-card-title">${escapeHtml(shotTitle(shot))}</div>
       <div class="shot-card-subtitle">${escapeHtml(shotSubtitle(shot))}</div>
@@ -337,7 +401,7 @@ function renderShotList() {
         ${shot.espresso_enjoyment ? `<span class="pill">${escapeHtml(fmt(shot.espresso_enjoyment, 0))}/100</span>` : ""}
       </div>
     `;
-    button.addEventListener("click", () => selectShot(shot.clock));
+    button.addEventListener("click", () => selectShot(shot.clock, { updateUrl: true }));
     fragment.append(button);
   }
   els.shotList.append(fragment);
@@ -360,8 +424,11 @@ async function selectShot(clock, options = {}) {
   }
   state.selectedDetail = normalizeDetail(data);
   renderDetail(state.selectedDetail);
+  if (state.mode === "history" && options.updateUrl) {
+    writeRoute({ shot: clock, view: null });
+  }
   if (state.mode === "history" && isMobileLayout() && options.showDetail !== false) {
-    setMobileView("detail");
+    setMobileView("detail", { instant: options.instant });
   }
 }
 
@@ -890,19 +957,16 @@ function escapeHtml(value) {
   }[char]));
 }
 
-function setMode(mode) {
-  state.mode = mode;
+function setMode(mode, options = {}) {
+  setModeChrome(mode);
   state.selectedClock = null;
   if (mode === "history") {
+    if (options.updateUrl !== false) writeRoute({ shot: null, view: null });
     setMobileView("list", { instant: true, scroll: false });
   } else {
+    if (options.updateUrl !== false) writeRoute({ shot: null, view: "next" });
     setMobileView("detail", { instant: true, scroll: false });
   }
-  els.historyTab.classList.toggle("active", mode === "history");
-  els.nextTab.classList.toggle("active", mode === "next");
-  els.historyTab.setAttribute("aria-selected", mode === "history" ? "true" : "false");
-  els.nextTab.setAttribute("aria-selected", mode === "next" ? "true" : "false");
-  els.searchInput.disabled = mode !== "history";
   if (state.demo && mode === "next") {
     state.selectedDetail = {
       ok: true,
@@ -933,7 +997,10 @@ els.refreshButton.addEventListener("click", () => loadShots().catch((error) => {
 }));
 els.historyTab.addEventListener("click", () => setMode("history"));
 els.nextTab.addEventListener("click", () => setMode("next"));
-els.backToShotsButton.addEventListener("click", () => setMobileView("list"));
+els.backToShotsButton.addEventListener("click", () => {
+  writeRoute({ shot: null, view: null }, { replace: true });
+  setMobileView("list");
+});
 els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) => {
   els.connectionState.textContent = error.message;
   updateSaveButton();
@@ -941,6 +1008,11 @@ els.editButton.addEventListener("click", () => saveInlineEdits().catch((error) =
 mobileQuery.addEventListener("change", () => {
   applyResponsiveView();
   selectFirstShotForWideLayout().catch((error) => {
+    els.connectionState.textContent = error.message;
+  });
+});
+window.addEventListener("popstate", () => {
+  applyRoute({ instant: true, scroll: false }).catch((error) => {
     els.connectionState.textContent = error.message;
   });
 });

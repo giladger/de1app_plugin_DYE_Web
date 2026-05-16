@@ -1,10 +1,12 @@
+const API_BASE = new URLSearchParams(window.location.search).get("api")?.replace(/\/$/, "") || "";
+
 const API = {
-  status: "/api/status",
-  schema: "/api/schema",
-  shots: "/api/shots",
-  next: "/api/next",
-  shot: (clock) => `/api/shots/${clock}`,
-  values: (field) => `/api/fields/${encodeURIComponent(field)}/values`,
+  status: `${API_BASE}/api/status`,
+  schema: `${API_BASE}/api/schema`,
+  shots: `${API_BASE}/api/shots`,
+  next: `${API_BASE}/api/next`,
+  shot: (clock) => `${API_BASE}/api/shots/${clock}`,
+  values: (field) => `${API_BASE}/api/fields/${encodeURIComponent(field)}/values`,
 };
 
 const DEFAULT_SCHEMA = [
@@ -108,20 +110,89 @@ const els = {
   saveButton: document.querySelector("#saveButton"),
 };
 
+function cleanValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "string") return value;
+  let text = value.trim();
+  if (text === "{}" || text.toUpperCase() === "NULL") return "";
+  if (text.length >= 2 && text.startsWith("{") && text.endsWith("}") && hasSingleOuterBracePair(text)) {
+    text = text.slice(1, -1);
+  }
+  return text.replace(/\\n/g, "\n").trim();
+}
+
+function hasSingleOuterBracePair(text) {
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === "{" && text[i - 1] !== "\\") depth += 1;
+    if (char === "}" && text[i - 1] !== "\\") depth -= 1;
+    if (depth === 0 && i < text.length - 1) return false;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+function normalizeSchema(fields) {
+  return fields.map((field) => {
+    const normalized = { ...field };
+    for (const key of ["name", "short_name", "section", "subsection", "data_type", "default", "measure_unit"]) {
+      normalized[key] = cleanValue(normalized[key]);
+    }
+    normalized.section = normalized.section || "description";
+    normalized.name = normalized.name || titleFromKey(normalized.key);
+    normalized.short_name = normalized.short_name || normalized.name;
+    return normalized;
+  });
+}
+
+function normalizeShot(shot) {
+  const normalized = { ...shot };
+  for (const [key, value] of Object.entries(normalized)) {
+    normalized[key] = cleanValue(value);
+  }
+  return normalized;
+}
+
+function normalizeDetail(data) {
+  return {
+    ...data,
+    shot: normalizeShot(data.shot || {}),
+    fields: (data.fields || []).map((field) => ({
+      ...field,
+      name: cleanValue(field.name),
+      value: cleanValue(field.value),
+    })),
+  };
+}
+
+function titleFromKey(key = "") {
+  return String(key)
+    .replace(/^next_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function fieldLabel(field) {
+  return cleanValue(field.short_name) || cleanValue(field.name) || titleFromKey(field.key);
+}
+
 function fmt(value, digits = 1) {
-  if (value === null || value === undefined || value === "") return "-";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
+  const cleaned = cleanValue(value);
+  if (cleaned === null || cleaned === undefined || cleaned === "") return "-";
+  if (cleaned === "null" || cleaned === "NULL") return "-";
+  const number = Number(cleaned);
+  if (!Number.isFinite(number)) return String(cleaned);
   return number.toFixed(digits).replace(/\.0$/, "");
 }
 
 function shotTitle(shot) {
-  const beans = [shot.bean_brand, shot.bean_type].filter(Boolean).join(" ");
-  return beans || shot.profile_title || shot.filename || "Shot";
+  const beans = [shot.bean_brand, shot.bean_type].map(cleanValue).filter(Boolean).join(" ");
+  return beans || cleanValue(shot.profile_title) || cleanValue(shot.filename) || "Shot";
 }
 
 function shotSubtitle(shot) {
-  const profile = shot.profile_title || "No profile";
+  const profile = cleanValue(shot.profile_title) || "No profile";
   const date = shot.iso_time ? new Date(shot.iso_time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
   return [profile, date].filter(Boolean).join(" @ ");
 }
@@ -129,7 +200,7 @@ function shotSubtitle(shot) {
 function metricText(shot) {
   const dose = fmt(shot.grinder_dose_weight);
   const drink = fmt(shot.drink_weight);
-  const ratio = shot.ratio ? `1:${fmt(shot.ratio, 2)}` : "-";
+  const ratio = shot.ratio ? `1:${fmt(shot.ratio, 2)}` : ratioFromShot(shot);
   const seconds = fmt(shot.extraction_time);
   return `${dose}g -> ${drink}g (${ratio}) in ${seconds}s`;
 }
@@ -150,13 +221,13 @@ async function loadApp() {
   try {
     const [status, schema] = await Promise.all([fetchJson(API.status), fetchJson(API.schema)]);
     state.demo = false;
-    state.schema = schema.fields?.length ? schema.fields : DEFAULT_SCHEMA;
+    state.schema = normalizeSchema(schema.fields?.length ? schema.fields : DEFAULT_SCHEMA);
     els.connectionState.textContent = `${status.shots ?? 0} in SDB`;
     await loadShots();
   } catch (error) {
     state.demo = true;
-    state.schema = DEFAULT_SCHEMA;
-    state.shots = DEMO_SHOTS;
+    state.schema = normalizeSchema(DEFAULT_SCHEMA);
+    state.shots = DEMO_SHOTS.map(normalizeShot);
     els.connectionState.textContent = "Preview data";
     renderShotList();
     await selectShot(DEMO_SHOTS[0].clock);
@@ -182,7 +253,7 @@ async function loadShots() {
   const search = els.searchInput.value.trim();
   if (search) params.set("search", search);
   const data = await fetchJson(`${API.shots}?${params}`);
-  state.shots = data.shots || [];
+  state.shots = (data.shots || []).map(normalizeShot);
   renderShotList();
   if (state.shots.length) {
     const clock = state.selectedClock && state.shots.some((shot) => shot.clock === state.selectedClock)
@@ -199,8 +270,8 @@ async function loadNext() {
   els.shotCount.textContent = "Next Shot";
   const data = await fetchJson(API.next);
   state.selectedClock = "next";
-  state.selectedDetail = data;
-  renderDetail(data);
+  state.selectedDetail = normalizeDetail(data);
+  renderDetail(state.selectedDetail);
 }
 
 function renderShotList() {
@@ -238,15 +309,15 @@ async function selectShot(clock) {
     const shot = DEMO_SHOTS.find((item) => item.clock === clock) || DEMO_SHOTS[0];
     data = {
       ok: true,
-      shot,
-      fields: state.schema.map((field) => ({ name: field.key, value: shot[field.key] ?? "" })),
+      shot: normalizeShot(shot),
+      fields: state.schema.map((field) => ({ name: field.key, value: cleanValue(shot[field.key] ?? "") })),
       series: DEMO_SERIES,
     };
   } else {
     data = await fetchJson(API.shot(clock));
   }
-  state.selectedDetail = data;
-  renderDetail(data);
+  state.selectedDetail = normalizeDetail(data);
+  renderDetail(state.selectedDetail);
 }
 
 function renderEmptyDetail() {
@@ -292,7 +363,7 @@ function ratioFromShot(shot) {
 }
 
 function normalizeFields(fields) {
-  const values = new Map(fields.map((field) => [field.name, field.value]));
+  const values = new Map(fields.map((field) => [cleanValue(field.name), cleanValue(field.value)]));
   return state.schema.map((field) => ({ ...field, value: values.get(field.key) ?? "" }));
 }
 
@@ -306,14 +377,17 @@ function renderMetadata(fields) {
       <h3>${escapeHtml(sectionLabel(section))}</h3>
       <div class="field-list">
         ${items.map((field) => `
-          <div class="field-row">
-            <div class="field-name">${escapeHtml(field.short_name || field.name)}</div>
+          <button class="field-row" type="button" data-field-key="${escapeHtml(field.key)}">
+            <div class="field-name">${escapeHtml(fieldLabel(field))}</div>
             <div class="field-value">${escapeHtml(displayFieldValue(field))}</div>
-          </div>
+          </button>
         `).join("")}
       </div>
     `;
     els.metadataGrid.append(block);
+  }
+  for (const row of els.metadataGrid.querySelectorAll("[data-field-key]")) {
+    row.addEventListener("click", () => openEditor(row.dataset.fieldKey));
   }
 }
 
@@ -321,7 +395,7 @@ function groupFields(fields) {
   const order = ["beans", "equipment", "extraction", "tasting", "people", "beverage", "description"];
   const map = new Map();
   for (const field of fields) {
-    const section = field.section || "description";
+    const section = cleanValue(field.section) || "description";
     if (!map.has(section)) map.set(section, []);
     map.get(section).push(field);
   }
@@ -329,6 +403,7 @@ function groupFields(fields) {
 }
 
 function sectionLabel(section) {
+  const cleaned = cleanValue(section);
   const labels = {
     beans: "Beans",
     equipment: "Equipment",
@@ -338,13 +413,18 @@ function sectionLabel(section) {
     beverage: "Beverage",
     description: "Description",
   };
-  return labels[section] || section.replace(/_/g, " ");
+  return labels[cleaned] || cleaned.replace(/_/g, " ");
 }
 
 function displayFieldValue(field) {
-  if (field.value === null || field.value === undefined || field.value === "") return "-";
-  const unit = field.measure_unit || "";
-  return `${field.value}${unit && field.data_type === "number" ? unit : ""}`;
+  const value = cleanValue(field.value);
+  if (value === null || value === undefined || value === "") return "-";
+  const unit = cleanValue(field.measure_unit) || "";
+  if (field.data_type === "number") {
+    const digits = Number.isFinite(Number(field.n_decimals)) ? Number(field.n_decimals) : 1;
+    return `${fmt(value, digits)}${unit}`;
+  }
+  return String(value);
 }
 
 function drawChart(series) {
@@ -370,16 +450,20 @@ function drawChart(series) {
     { key: "flow", label: "Flow", color: "#c8553d", scale: "left" },
     { key: "weight", label: "Weight", color: "#6d5bd0", scale: "right" },
     { key: "temperature_basket", label: "Temp", color: "#a97818", scale: "temp" },
-  ].map((line) => ({ ...line, values: numericArray(series[line.key]) })).filter((line) => line.values.length);
+  ].map((line) => ({
+    ...line,
+    values: numericArray(series[line.key], { nonNegative: line.scale !== "temp" }),
+  })).filter((line) => line.values.length);
 
   const pad = { left: 42, right: 42, top: 22, bottom: 34 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   const xMax = Math.max(...elapsed);
-  const leftMax = Math.max(10, ...lines.filter((line) => line.scale === "left").flatMap((line) => line.values));
-  const rightMax = Math.max(50, ...lines.filter((line) => line.scale === "right").flatMap((line) => line.values));
-  const tempMin = 80;
-  const tempMax = 100;
+  const domains = {
+    left: chartDomain(lines, "left", { fallbackMax: 10, floorZero: true, minRange: 10 }),
+    right: chartDomain(lines, "right", { fallbackMax: 50, floorZero: true, minRange: 50 }),
+    temp: chartDomain(lines, "temp", { fallbackMin: 80, fallbackMax: 100, padding: 1.5, minRange: 10 }),
+  };
 
   ctx.fillStyle = "#fbfcfd";
   ctx.fillRect(0, 0, width, height);
@@ -397,16 +481,26 @@ function drawChart(series) {
   ctx.font = "12px system-ui, sans-serif";
   ctx.fillText("0s", pad.left, height - 12);
   ctx.fillText(`${fmt(xMax, 0)}s`, width - pad.right - 28, height - 12);
+  ctx.fillText(`${fmt(domains.left.max, 0)}`, 6, pad.top + 4);
+  ctx.fillText(`${fmt(domains.left.min, 0)}`, 6, pad.top + plotH);
+  ctx.textAlign = "right";
+  ctx.fillText(`${fmt(domains.temp.max, 0)}C`, width - 6, pad.top + 4);
+  ctx.fillText(`${fmt(domains.temp.min, 0)}C`, width - 6, pad.top + plotH);
+  ctx.textAlign = "left";
 
   function xAt(index) {
-    return pad.left + (elapsed[index] / xMax) * plotW;
+    return pad.left + ((elapsed[index] || 0) / Math.max(1, xMax)) * plotW;
   }
   function yAt(value, scale) {
-    if (scale === "right") return pad.top + plotH - (value / rightMax) * plotH;
-    if (scale === "temp") return pad.top + plotH - ((value - tempMin) / (tempMax - tempMin)) * plotH;
-    return pad.top + plotH - (value / leftMax) * plotH;
+    const domain = domains[scale] || domains.left;
+    const y = pad.top + plotH - ((value - domain.min) / (domain.max - domain.min)) * plotH;
+    return clamp(y, pad.top, pad.top + plotH);
   }
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad.left, pad.top, plotW, plotH);
+  ctx.clip();
   for (const line of lines) {
     ctx.strokeStyle = line.color;
     ctx.lineWidth = 2;
@@ -420,6 +514,7 @@ function drawChart(series) {
     }
     ctx.stroke();
   }
+  ctx.restore();
 
   els.chartLegend.innerHTML = lines.map((line) => `
     <span class="legend-item" style="color:${line.color}">
@@ -444,12 +539,44 @@ function clearChart(message = "") {
   els.chartLegend.innerHTML = "";
 }
 
-function numericArray(value) {
+function numericArray(value, options = {}) {
   if (!Array.isArray(value)) return [];
-  return value.map(Number).filter(Number.isFinite);
+  return value
+    .map(Number)
+    .filter((number) => Number.isFinite(number) && Math.abs(number) < 100000)
+    .filter((number) => !options.nonNegative || number >= 0);
 }
 
-async function openEditor() {
+function chartDomain(lines, scale, options = {}) {
+  const values = lines.filter((line) => line.scale === scale).flatMap((line) => line.values);
+  if (!values.length) {
+    return { min: options.fallbackMin ?? 0, max: options.fallbackMax ?? 1 };
+  }
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (options.floorZero) min = 0;
+  const padding = options.padding ?? Math.max(0.5, (max - min) * 0.08);
+  if (!options.floorZero) min -= padding;
+  max += padding;
+  if (options.floorZero) min = 0;
+  const minRange = options.minRange || 1;
+  if (max - min < minRange) {
+    if (options.floorZero) {
+      max = min + minRange;
+    } else {
+      const mid = (min + max) / 2;
+      min = mid - (minRange / 2);
+      max = mid + (minRange / 2);
+    }
+  }
+  return { min, max };
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+async function openEditor(focusKey = "") {
   const detail = state.selectedDetail;
   if (!detail) return;
   const fields = normalizeFields(detail.fields || []);
@@ -473,29 +600,40 @@ async function openEditor() {
   } else {
     els.editorDialog.setAttribute("open", "");
   }
+
+  if (focusKey) {
+    const target = [...els.editorFields.querySelectorAll("input, textarea")]
+      .find((item) => item.name === focusKey);
+    if (target) {
+      target.scrollIntoView({ block: "center" });
+      target.focus({ preventScroll: true });
+      target.select?.();
+    }
+  }
 }
 
 async function renderEditorField(field) {
   const wrap = document.createElement("div");
-  wrap.className = "edit-field";
+  wrap.className = `edit-field ${field.data_type === "number" ? "edit-field-number" : ""}`;
   const id = `field-${field.key}`;
   const label = document.createElement("label");
   label.setAttribute("for", id);
-  label.textContent = field.name || field.key;
+  label.textContent = fieldLabel(field);
   wrap.append(label);
 
   let input;
   if (field.data_type === "long_text" || field.data_type === "complex") {
     input = document.createElement("textarea");
-    input.value = field.value ?? "";
+    input.value = cleanValue(field.value);
   } else {
     input = document.createElement("input");
-    input.value = field.value ?? "";
+    input.value = cleanValue(field.value);
     input.type = field.data_type === "number" ? "number" : "text";
     if (field.data_type === "number") {
+      input.inputMode = "decimal";
       if (field.min !== null && field.min !== undefined) input.min = field.min;
       if (field.max !== null && field.max !== undefined) input.max = field.max;
-      if (field.smallincrement) input.step = field.smallincrement;
+      input.step = field.smallincrement || "any";
     }
     if (field.data_type === "category") {
       const listId = `${id}-values`;
@@ -510,8 +648,59 @@ async function renderEditorField(field) {
   input.id = id;
   input.name = field.key;
   input.dataset.type = field.data_type || "text";
-  wrap.append(input);
+
+  if (field.data_type === "number") {
+    const control = document.createElement("div");
+    control.className = "number-control";
+    const decrement = document.createElement("button");
+    decrement.type = "button";
+    decrement.className = "step-button";
+    decrement.textContent = "-";
+    decrement.setAttribute("aria-label", `Decrease ${fieldLabel(field)}`);
+    decrement.addEventListener("click", () => adjustNumber(input, field, -1));
+    const increment = document.createElement("button");
+    increment.type = "button";
+    increment.className = "step-button";
+    increment.textContent = "+";
+    increment.setAttribute("aria-label", `Increase ${fieldLabel(field)}`);
+    increment.addEventListener("click", () => adjustNumber(input, field, 1));
+    control.append(decrement, input, increment);
+    wrap.append(control);
+  } else {
+    wrap.append(input);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "edit-field-meta";
+  const unit = cleanValue(field.measure_unit);
+  meta.innerHTML = `<span>${escapeHtml(unit ? `Unit: ${unit}` : titleFromKey(field.key))}</span>`;
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.textContent = "Clear";
+  clear.addEventListener("click", () => {
+    input.value = "";
+    input.focus();
+  });
+  meta.append(clear);
+  wrap.append(meta);
   return wrap;
+}
+
+function adjustNumber(input, field, direction) {
+  const step = Number(field.smallincrement) || 1;
+  const decimals = Number.isFinite(Number(field.n_decimals)) ? Number(field.n_decimals) : decimalPlaces(step);
+  const fallback = direction > 0 ? 0 : Number(input.value) || 0;
+  let next = (Number(input.value) || fallback) + (step * direction);
+  const min = Number(field.min);
+  const max = Number(field.max);
+  if (Number.isFinite(min)) next = Math.max(min, next);
+  if (Number.isFinite(max)) next = Math.min(max, next);
+  input.value = Number(next.toFixed(Math.min(6, Math.max(0, decimals))));
+}
+
+function decimalPlaces(value) {
+  const text = String(value);
+  return text.includes(".") ? text.split(".")[1].length : 0;
 }
 
 async function getCategoryValues(field) {
@@ -519,7 +708,7 @@ async function getCategoryValues(field) {
   if (state.categoryValues.has(field)) return state.categoryValues.get(field);
   try {
     const data = await fetchJson(API.values(field));
-    const values = data.values || [];
+    const values = [...new Set((data.values || []).map(cleanValue).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     state.categoryValues.set(field, values);
     return values;
   } catch {

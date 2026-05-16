@@ -33,6 +33,7 @@ body {
     linear-gradient(180deg, rgba(8, 127, 140, 0.08), transparent 280px),
     var(--bg);
   letter-spacing: 0;
+  overflow-x: hidden;
 }
 
 button,
@@ -48,6 +49,7 @@ button {
 
 .app-shell {
   width: min(1440px, 100%);
+  max-width: 100%;
   margin: 0 auto;
   padding: max(16px, env(safe-area-inset-top)) 16px 24px;
 }
@@ -85,6 +87,7 @@ h2 {
   margin-bottom: 0;
   font-size: clamp(1.45rem, 3.8vw, 2.45rem);
   line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
 h3 {
@@ -138,6 +141,7 @@ h3 {
   gap: 12px;
   align-items: end;
   margin-bottom: 14px;
+  min-width: 0;
 }
 
 .segmented {
@@ -193,10 +197,12 @@ h3 {
   grid-template-columns: minmax(320px, 0.36fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+  min-width: 0;
 }
 
 .shot-list-panel,
 .detail-panel {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.86);
@@ -294,6 +300,16 @@ h3 {
 
 .shot-title-block {
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.shot-title-block h2 {
+  display: block;
+  width: min(100%, calc(100vw - 56px));
+  max-width: 100%;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .subtitle {
@@ -396,6 +412,20 @@ h3 {
   grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
   gap: 10px;
   align-items: baseline;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.field-row:hover,
+.field-row:focus-visible {
+  background: var(--surface-strong);
+  outline: none;
 }
 
 .field-name {
@@ -460,10 +490,12 @@ h3 {
 
 .editor-section {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .editor-section-title {
+  grid-column: 1 / -1;
   margin: 6px 0 0;
   color: var(--teal-dark);
   font-size: 0.82rem;
@@ -474,6 +506,11 @@ h3 {
 .edit-field {
   display: grid;
   gap: 6px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 10px;
 }
 
 .edit-field label {
@@ -492,6 +529,39 @@ h3 {
   color: var(--text);
   padding: 10px 12px;
   outline: none;
+}
+
+.number-control {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 6px;
+}
+
+.step-button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.2rem;
+  font-weight: 820;
+}
+
+.edit-field-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.edit-field-meta button {
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--teal-dark);
+  font-weight: 760;
 }
 
 .edit-field textarea {
@@ -520,16 +590,21 @@ h3 {
   .controls,
   .workspace {
     grid-template-columns: 1fr;
+    width: 100%;
+    max-width: calc(100vw - 20px);
   }
 
   .shot-list-panel {
     position: static;
+    width: 100%;
+    max-width: calc(100vw - 20px);
     max-height: none;
   }
 
   .shot-list {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(260px, 82vw);
+    display: flex;
+    width: 100%;
+    max-width: 100%;
     max-height: none;
     overflow-x: auto;
     overflow-y: hidden;
@@ -537,16 +612,29 @@ h3 {
   }
 
   .shot-card {
+    flex: 0 0 min(320px, 82vw);
     scroll-snap-align: start;
   }
 
   .detail-panel {
+    width: 100%;
+    max-width: calc(100vw - 20px);
     min-height: auto;
   }
 
   .shot-hero {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .shot-title-block,
+  .shot-title-block h2,
+  .subtitle {
+    max-width: calc(100vw - 56px);
+  }
+
+  .shot-title-block h2 {
+    font-size: 1.15rem;
   }
 
   .metrics-strip {
@@ -588,7 +676,11 @@ h3 {
   }
 
   .shot-list {
-    grid-auto-columns: minmax(248px, 88vw);
+    width: 100%;
+  }
+
+  .shot-card {
+    flex-basis: 88vw;
   }
 
   .metrics-strip {
@@ -618,5 +710,9 @@ h3 {
   .editor-surface {
     max-height: 92vh;
     border-radius: 8px 8px 0 0;
+  }
+
+  .editor-section {
+    grid-template-columns: 1fr;
   }
 }

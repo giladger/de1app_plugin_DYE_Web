@@ -213,14 +213,21 @@ function fmt(value, digits = 1) {
 }
 
 function shotTitle(shot) {
+  const note = cleanValue(shot.espresso_notes);
+  if (note) return note;
   const beans = [shot.bean_brand, shot.bean_type].map(cleanValue).filter(Boolean).join(" ");
   return beans || cleanValue(shot.profile_title) || cleanValue(shot.filename) || "Shot";
+}
+
+function shotBeanTitle(shot) {
+  return [shot.bean_brand, shot.bean_type].map(cleanValue).filter(Boolean).join(" ");
 }
 
 function shotSubtitle(shot) {
   const profile = cleanValue(shot.profile_title) || "No profile";
   const date = shot.iso_time ? new Date(shot.iso_time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
-  return [profile, date].filter(Boolean).join(" @ ");
+  const beans = cleanValue(shot.espresso_notes) ? shotBeanTitle(shot) : "";
+  return [beans, profile, date].filter(Boolean).join(" @ ");
 }
 
 function metricText(shot) {
@@ -518,14 +525,12 @@ function renderShotList() {
   }
   const fragment = document.createDocumentFragment();
   for (const shot of state.shots) {
-    const note = cleanValue(shot.espresso_notes);
     const button = document.createElement("button");
     button.type = "button";
     button.className = `shot-card ${String(shot.clock) === String(state.selectedClock) ? "active" : ""}`;
     button.innerHTML = `
       <div class="shot-card-title">${escapeHtml(shotTitle(shot))}</div>
       <div class="shot-card-subtitle">${escapeHtml(shotSubtitle(shot))}</div>
-      ${note ? `<div class="shot-card-note">${escapeHtml(note)}</div>` : ""}
       <div class="shot-card-meta">
         ${shot.reference ? `<span class="pill favorite-pill">Favorite</span>` : ""}
         <span class="pill">${escapeHtml(metricText(shot))}</span>
@@ -609,7 +614,10 @@ function renderDetail(data) {
     ? "Next Shot"
     : shot.iso_time ? new Date(shot.iso_time).toLocaleString([], { dateStyle: "full", timeStyle: "short" }) : "Shot";
   els.selectedTitle.textContent = shotTitle(shot);
-  els.selectedSubtitle.textContent = shot.kind === "next" ? "Plan and description values for the next espresso." : metricText(shot);
+  const beans = shotBeanTitle(shot);
+  els.selectedSubtitle.textContent = shot.kind === "next"
+    ? "Plan and description values for the next espresso."
+    : [beans, metricText(shot)].filter(Boolean).join(" · ");
   renderDetailActions(shot);
   renderMetrics(shot);
   renderMetadata(fields);
@@ -668,6 +676,10 @@ function normalizeFields(fields) {
       field.name = "Shot note";
       field.short_name = "Note";
       field.section = "notes";
+    } else if (field.key === "bean_notes") {
+      field.name = "Bean notes";
+      field.short_name = "Bean notes";
+      field.section = "beans";
     }
   }
   return normalized;

@@ -1,6 +1,7 @@
 const URL_PARAMS = new URLSearchParams(window.location.search);
 const API_BASE = URL_PARAMS.get("api")?.replace(/\/$/, "") || "";
-const ACCESS_TOKEN = URL_PARAMS.get("token") || "";
+let accessToken = URL_PARAMS.get("token") || sessionStorage.getItem("dye_web_token") || "";
+if (URL_PARAMS.get("token")) sessionStorage.setItem("dye_web_token", accessToken);
 
 const API = {
   schema: `${API_BASE}/api/schema`,
@@ -120,10 +121,16 @@ const els = {
   actionStatus: document.querySelector("#actionStatus"),
   floatingSaveButton: document.querySelector("#floatingSaveButton"),
   floatingSaveCount: document.querySelector("#floatingSaveCount"),
+  authOverlay: document.querySelector("#authOverlay"),
+  authForm: document.querySelector("#authForm"),
+  authPassword: document.querySelector("#authPassword"),
+  authError: document.querySelector("#authError"),
+  authCancel: document.querySelector("#authCancel"),
 };
 
 const mobileQuery = window.matchMedia("(max-width: 900px)");
 let actionStatusTimer;
+let passwordPrompt;
 
 function cleanValue(value) {
   if (value === null || value === undefined) return "";
@@ -221,19 +228,68 @@ function metricText(shot) {
 }
 
 async function fetchJson(url, options = {}) {
+  const { authPromptAttempts = 0, ...fetchOptions } = options;
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  if (ACCESS_TOKEN) headers["X-DYE-Web-Token"] = ACCESS_TOKEN;
+  if (accessToken) headers["X-DYE-Web-Token"] = accessToken;
   const response = await fetch(url, {
-    ...options,
+    ...fetchOptions,
     headers,
   });
   const json = await response.json();
   if (!response.ok || json.ok === false) {
     const error = new Error(json.error || `Request failed: ${response.status}`);
     error.status = response.status;
+    if (response.status === 401 && authPromptAttempts < 3) {
+      const token = await requestPassword(authPromptAttempts ? "That password didn't work." : error.message);
+      if (token) {
+        accessToken = token;
+        sessionStorage.setItem("dye_web_token", accessToken);
+        return fetchJson(url, { ...options, authPromptAttempts: authPromptAttempts + 1 });
+      }
+    }
     throw error;
   }
   return json;
+}
+
+function requestPassword(message = "") {
+  if (passwordPrompt) {
+    els.authError.textContent = message && message !== "Unauthorized" ? message : "";
+    return passwordPrompt;
+  }
+
+  els.authPassword.value = "";
+  els.authError.textContent = message && message !== "Unauthorized" ? message : "";
+  els.authOverlay.hidden = false;
+  window.setTimeout(() => els.authPassword.focus(), 0);
+
+  passwordPrompt = new Promise((resolve) => {
+    const cleanup = () => {
+      els.authOverlay.hidden = true;
+      els.authForm.removeEventListener("submit", onSubmit);
+      els.authCancel.removeEventListener("click", onCancel);
+      passwordPrompt = null;
+    };
+    const onSubmit = (event) => {
+      event.preventDefault();
+      const token = els.authPassword.value.trim();
+      if (!token) {
+        els.authError.textContent = "Enter the password from the tablet.";
+        els.authPassword.focus();
+        return;
+      }
+      cleanup();
+      resolve(token);
+    };
+    const onCancel = () => {
+      cleanup();
+      resolve("");
+    };
+    els.authForm.addEventListener("submit", onSubmit);
+    els.authCancel.addEventListener("click", onCancel);
+  });
+
+  return passwordPrompt;
 }
 
 function isMobileLayout() {

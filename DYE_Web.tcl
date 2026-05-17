@@ -581,6 +581,9 @@ proc ::plugins::DYE_Web::api_shots { query } {
 
 	set limit [query_int $query limit 300 1 2000]
 	set where {removed=0}
+	if { "profile_title" in $available } {
+		lappend where "(profile_title IS NULL OR profile_title NOT LIKE 'Cleaning/%')"
+	}
 	foreach {param column} {bean bean_desc profile profile_title grinder grinder_model} {
 		if { [dict exists $query $param] && [string trim [dict get $query $param]] ne "" && $column in $available } {
 			set value [dict get $query $param]

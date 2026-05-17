@@ -1458,8 +1458,18 @@ proc ::plugins::DYE_Web::json_bool { value } {
 	return "false"
 }
 
+proc ::plugins::DYE_Web::json_is_finite_number { value } {
+	if { ![string is double -strict $value] && ![string is integer -strict $value] } {
+		return 0
+	}
+	if { [catch { set number [expr {double($value)}] }] } {
+		return 0
+	}
+	return [expr {$number == $number && $number != double(Inf) && $number != -double(Inf)}]
+}
+
 proc ::plugins::DYE_Web::json_number { value } {
-	if { [string is double -strict $value] || [string is integer -strict $value] } {
+	if { [json_is_finite_number $value] } {
 		return $value
 	}
 	return "0"
@@ -1469,7 +1479,7 @@ proc ::plugins::DYE_Web::json_nullable_number { value } {
 	if { $value eq "" || $value eq "NULL" } {
 		return "null"
 	}
-	if { [string is double -strict $value] || [string is integer -strict $value] } {
+	if { [json_is_finite_number $value] } {
 		return $value
 	}
 	return "null"

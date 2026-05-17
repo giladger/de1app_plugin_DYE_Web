@@ -104,6 +104,7 @@ h3 {
 .icon-button,
 .primary-button,
 .secondary-button,
+.danger-button,
 .segment {
   min-height: 44px;
   border: 1px solid var(--line);
@@ -262,6 +263,21 @@ h3 {
   color: var(--text);
   padding: 0 16px;
   font-weight: 680;
+}
+
+.danger-button {
+  border-color: rgba(200, 85, 61, 0.42);
+  background: rgba(200, 85, 61, 0.08);
+  color: var(--coral);
+  padding: 0 16px;
+  font-weight: 760;
+}
+
+.danger-button:disabled {
+  border-color: var(--line);
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: default;
 }
 
 .compact-button {
@@ -853,6 +869,10 @@ h3 {
 
   .shot-hero .primary-button {
     flex: 1 1 140px;
+  }
+
+  .shot-hero .danger-button {
+    flex: 1 1 110px;
   }
 
   .shot-title-block,

@@ -121,6 +121,7 @@ const els = {
   backToShotsButton: document.querySelector("#backToShotsButton"),
   favoriteButton: document.querySelector("#favoriteButton"),
   profileButton: document.querySelector("#profileButton"),
+  deleteButton: document.querySelector("#deleteButton"),
   editButton: document.querySelector("#editButton"),
   actionStatus: document.querySelector("#actionStatus"),
   floatingSaveButton: document.querySelector("#floatingSaveButton"),
@@ -625,9 +626,10 @@ function renderDetail(data) {
 }
 
 function renderDetailActions(shot) {
-  const historyShot = state.mode === "history" && shot.kind !== "next" && shot.clock;
+  const historyShot = state.mode === "history" && shot.kind !== "next" && shot.clock && !state.demo;
   els.favoriteButton.disabled = !historyShot;
   els.profileButton.disabled = !historyShot || !(shot.profile_title || shot.profile_filename);
+  els.deleteButton.disabled = !historyShot;
   els.favoriteButton.classList.toggle("active", Boolean(shot.reference));
   els.favoriteButton.textContent = "Favorite";
 }
@@ -1230,6 +1232,25 @@ async function loadSelectedProfile() {
   els.profileButton.disabled = false;
 }
 
+async function deleteSelectedShot() {
+  if (!state.selectedDetail?.shot?.clock || state.mode !== "history" || state.demo) return;
+  const shot = state.selectedDetail.shot;
+  const title = shotTitle(shot);
+  const confirmed = window.confirm(`Delete this shot?\n\n${title}\n\nThe shot file will be moved to de1plus/bin so you can restore it manually.`);
+  if (!confirmed) return;
+
+  els.deleteButton.disabled = true;
+  setActionStatus("Deleting shot...", "info", { timeout: 0 });
+  const data = await fetchJson(API.shot(shot.clock), { method: "DELETE" });
+  writeRoute({ shot: null, view: null }, { replace: true });
+  state.selectedClock = null;
+  state.selectedDetail = null;
+  if (isMobileLayout()) setMobileView("list", { instant: true });
+  await loadShots();
+  els.connectionState.textContent = `${state.shots.length} shot${state.shots.length === 1 ? "" : "s"}`;
+  setActionStatus(data.message || "Shot deleted", "success");
+}
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -1288,6 +1309,11 @@ els.favoriteButton.addEventListener("click", () => toggleFavorite().catch((error
   renderDetailActions(state.selectedDetail?.shot || {});
 }));
 els.profileButton.addEventListener("click", () => loadSelectedProfile().catch((error) => {
+  els.connectionState.textContent = error.message;
+  setActionStatus(error.message, "error");
+  renderDetailActions(state.selectedDetail?.shot || {});
+}));
+els.deleteButton.addEventListener("click", () => deleteSelectedShot().catch((error) => {
   els.connectionState.textContent = error.message;
   setActionStatus(error.message, "error");
   renderDetailActions(state.selectedDetail?.shot || {});

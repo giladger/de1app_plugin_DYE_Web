@@ -506,6 +506,10 @@ proc ::plugins::DYE_Web::handle_api { chan request } {
 			send_json $chan 200 [api_shot_detail $clock]
 			return
 		}
+		if { $method eq "DELETE" } {
+			send_json $chan 200 [api_delete_shot $clock]
+			return
+		}
 		if { $method in {PATCH POST} } {
 			send_json $chan 200 [api_update_shot $clock [dict get $request body]]
 			return
@@ -686,6 +690,48 @@ proc ::plugins::DYE_Web::api_update_shot { clock body } {
 	}
 
 	return [api_shot_detail $clock]
+}
+
+proc ::plugins::DYE_Web::api_delete_shot { clock } {
+	if { ![string is integer -strict $clock] || $clock <= 0 } {
+		error "Invalid shot id"
+	}
+
+	set path [::plugins::SDB::get_shot_file_path $clock]
+	if { $path eq "" || ![file exists $path] } {
+		error "Shot file for $clock was not found"
+	}
+
+	set backup_path [file join [homedir] bin]
+	if { ![file exists $backup_path] } {
+		if { [catch { file mkdir $backup_path } err] } {
+			error "Could not create bin folder: $err"
+		}
+	}
+
+	set target_file [file join $backup_path [file tail $path]]
+	if { [catch { file copy -force -- $path $target_file } err] } {
+		error "Could not copy shot to bin: $err"
+	}
+	if { ![file exists $target_file] } {
+		error "Could not copy shot to bin"
+	}
+	if { [catch { file delete -force -- $path } err] } {
+		error "Could not remove shot file: $err"
+	}
+
+	set db [::plugins::SDB::get_db]
+	if { [catch { db eval {UPDATE shot SET removed=1 WHERE clock=$clock} } err] } {
+		error "Could not mark shot removed in database: $err"
+	}
+	set_reference_clock $clock 0
+
+	return [json_object [list \
+		ok [json_bool 1] \
+		clock [json_number $clock] \
+		message [json_string "Shot deleted"] \
+		bin_path [json_string $target_file] \
+	]]
 }
 
 proc ::plugins::DYE_Web::api_reference_shot { clock body } {
@@ -1408,7 +1454,7 @@ proc ::plugins::DYE_Web::send_response { chan status reason content_type body {a
 	append headers "Pragma: no-cache\r\n"
 	append headers "Expires: 0\r\n"
 	append headers "Access-Control-Allow-Origin: *\r\n"
-	append headers "Access-Control-Allow-Methods: GET, POST, PATCH, OPTIONS\r\n"
+	append headers "Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\r\n"
 	append headers "Access-Control-Allow-Headers: Content-Type, X-DYE-Web-Token\r\n"
 	append headers "\r\n"
 	puts -nonewline $chan $headers

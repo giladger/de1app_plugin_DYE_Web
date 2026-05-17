@@ -1,5 +1,9 @@
 const URL_PARAMS = new URLSearchParams(window.location.search);
 const API_BASE = URL_PARAMS.get("api")?.replace(/\/$/, "") || "";
+const LOCAL_PREVIEW_HOSTS = new Set(["", "localhost", "127.0.0.1", "::1"]);
+const DEMO_MODE = URL_PARAMS.get("demo") === "1"
+  || window.location.protocol === "file:"
+  || (!API_BASE && LOCAL_PREVIEW_HOSTS.has(window.location.hostname) && window.location.port !== "8787");
 let accessToken = URL_PARAMS.get("token") || sessionStorage.getItem("dye_web_token") || "";
 if (URL_PARAMS.get("token")) sessionStorage.setItem("dye_web_token", accessToken);
 
@@ -405,6 +409,19 @@ async function loadApp() {
       renderFavoriteList();
       renderShotList();
       renderEmptyDetail();
+      return;
+    }
+    if (!DEMO_MODE) {
+      state.demo = false;
+      state.allShots = [];
+      state.favoriteShots = [];
+      state.shots = [];
+      els.connectionState.textContent = error.message || "Connection failed";
+      renderFavoriteList();
+      renderShotList();
+      renderEmptyDetail();
+      els.selectedTitle.textContent = "Could not load DYE Web";
+      els.selectedSubtitle.textContent = "Check that the Decent app is running and DYE Web is enabled.";
       return;
     }
     state.demo = true;

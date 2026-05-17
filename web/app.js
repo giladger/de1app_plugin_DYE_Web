@@ -1,4 +1,6 @@
-const API_BASE = new URLSearchParams(window.location.search).get("api")?.replace(/\/$/, "") || "";
+const URL_PARAMS = new URLSearchParams(window.location.search);
+const API_BASE = URL_PARAMS.get("api")?.replace(/\/$/, "") || "";
+const ACCESS_TOKEN = URL_PARAMS.get("token") || "";
 
 const API = {
   schema: `${API_BASE}/api/schema`,
@@ -219,13 +221,17 @@ function metricText(shot) {
 }
 
 async function fetchJson(url, options = {}) {
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (ACCESS_TOKEN) headers["X-DYE-Web-Token"] = ACCESS_TOKEN;
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
+    headers,
   });
   const json = await response.json();
   if (!response.ok || json.ok === false) {
-    throw new Error(json.error || `Request failed: ${response.status}`);
+    const error = new Error(json.error || `Request failed: ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
   return json;
 }
@@ -334,6 +340,17 @@ async function loadApp() {
     els.connectionState.textContent = "Connected";
     await loadShots();
   } catch (error) {
+    if (error.status === 401) {
+      state.demo = false;
+      state.allShots = [];
+      state.favoriteShots = [];
+      state.shots = [];
+      els.connectionState.textContent = "Password required";
+      renderFavoriteList();
+      renderShotList();
+      renderEmptyDetail();
+      return;
+    }
     state.demo = true;
     state.schema = normalizeSchema(DEFAULT_SCHEMA);
     state.allShots = DEMO_SHOTS.map(normalizeShot);

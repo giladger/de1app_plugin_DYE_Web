@@ -217,7 +217,7 @@ proc ::plugins::DYE_Web::web_url {} {
 	check_settings
 	set url "http://[local_ip]:$settings(port)/"
 	if { [string is true $settings(require_token)] } {
-		append url "?token=$settings(access_token)"
+		append url "?token=[url_encode $settings(access_token)]"
 	}
 	return $url
 }
@@ -229,10 +229,12 @@ namespace eval ::dui::pages::DYE_Web_settings {
 		status_msg ""
 	}
 	variable qr_image "::dui::pages::DYE_Web_settings::qr_img"
+	variable password_widget ""
 }
 
 proc ::dui::pages::DYE_Web_settings::setup {} {
 	variable qr_image
+	variable password_widget
 	set page [namespace tail [namespace current]]
 
 	dui add dtext $page 1280 100 -tags page_title -text [translate "DYE Web Settings"] -style page_title
@@ -248,9 +250,24 @@ proc ::dui::pages::DYE_Web_settings::setup {} {
 	dui add dtext $page 1280 555 -anchor center -justify center -width 2200 -tags status_msg \
 		-text "" -font_size -1 -fill "#65727a"
 
+	dui add dtext $page 360 675 -anchor w -justify left -width 1200 \
+		-text [translate "Require password for the web interface"]
+	dui add dtoggle $page 2190 675 -anchor e -tags require_token \
+		-variable ::plugins::DYE_Web::settings(require_token) -command settings_changed
+
+	set password_widget [dui add entry $page 760 790 -tags access_token -canvas_width 920 -canvas_anchor w \
+		-textvariable ::plugins::DYE_Web::settings(access_token) -validate key \
+		-vcmd {return [expr {[string length %P] <= 64}]} \
+		-label [translate "Password"] -label_pos {360 790} -label_anchor w -label_width 320]
+	bind $password_widget <KeyRelease> [namespace current]::settings_changed
+	bind $password_widget <Leave> [namespace current]::settings_changed
+
+	dui add dbutton $page 1720 790 -anchor w -tags random_password -bwidth 420 -bheight 92 -shape round \
+		-label [translate "New password"] -label_font_size -2 -command random_password
+
 	catch { image delete $qr_image }
 	if { ![catch { image create photo $qr_image -width [dui::platform::rescale_x 1100] -height [dui::platform::rescale_y 1100] }] } {
-		dui add image $page 1280 910 {} -tags qr
+		dui add image $page 1280 1010 {} -tags qr
 		dui item config $page qr -image $qr_image
 	}
 
@@ -264,6 +281,7 @@ proc ::dui::pages::DYE_Web_settings::load { page_to_hide page_to_show args } {
 proc ::dui::pages::DYE_Web_settings::show { page_to_hide page_to_show } {
 	variable data
 
+	::plugins::DYE_Web::check_settings
 	set data(web_url) [::plugins::DYE_Web::web_url]
 	set data(status_msg) [translate "Scan the QR code, or type this address into your phone browser."]
 	update_qr
@@ -271,7 +289,29 @@ proc ::dui::pages::DYE_Web_settings::show { page_to_hide page_to_show } {
 }
 
 proc ::dui::pages::DYE_Web_settings::page_done {} {
+	settings_changed
 	dui page close_dialog
+}
+
+proc ::dui::pages::DYE_Web_settings::settings_changed { args } {
+	variable data
+
+	::plugins::DYE_Web::check_settings
+	catch { plugins save_settings DYE_Web }
+	set data(web_url) [::plugins::DYE_Web::web_url]
+	set data(status_msg) [translate "Scan the QR code, or type this address into your phone browser."]
+	update_qr
+	render
+}
+
+proc ::dui::pages::DYE_Web_settings::random_password {} {
+	set chars "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	set password ""
+	for { set i 0 } { $i < 12 } { incr i } {
+		append password [string index $chars [expr {int(rand() * [string length $chars])}]]
+	}
+	set ::plugins::DYE_Web::settings(access_token) $password
+	settings_changed
 }
 
 proc ::dui::pages::DYE_Web_settings::render {} {
@@ -1289,6 +1329,19 @@ proc ::plugins::DYE_Web::query_int { query key default min max } {
 	if { $value < $min } { set value $min }
 	if { $value > $max } { set value $max }
 	return $value
+}
+
+proc ::plugins::DYE_Web::url_encode { value } {
+	set out ""
+	foreach ch [split $value ""] {
+		if { [string match {[A-Za-z0-9_.~-]} $ch] } {
+			append out $ch
+		} else {
+			scan $ch %c code
+			append out %[format %02X $code]
+		}
+	}
+	return $out
 }
 
 proc ::plugins::DYE_Web::url_decode { value } {

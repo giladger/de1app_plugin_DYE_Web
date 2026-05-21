@@ -1,0 +1,124 @@
+openapi: 3.1.0
+info:
+  title: DYE Web GPT API
+  version: "1.0"
+  description: Safe Custom GPT action surface for DYE Web.
+servers:
+  - url: https://your-domain.example
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    FieldUpdates:
+      type: object
+      description: Editable DYE fields to update. Include only fields that should change.
+      properties:
+        espresso_notes:
+          type: string
+          description: Main tasting note for the shot.
+        espresso_enjoyment:
+          type: number
+          description: Enjoyment score.
+        bean_brand:
+          type: string
+        bean_type:
+          type: string
+        bean_desc:
+          type: string
+        bean_notes:
+          type: string
+          description: Notes about the beans or batch, not the tasted espresso.
+        roast_date:
+          type: string
+        roast_level:
+          type: string
+        grinder_model:
+          type: string
+        grinder_setting:
+          type: string
+        grinder_dose_weight:
+          type: number
+          description: Dose in grams.
+        drink_weight:
+          type: number
+          description: Beverage yield in grams.
+        target_drink_weight:
+          type: number
+          description: Target beverage yield in grams.
+        drink_tds:
+          type: number
+        drink_ey:
+          type: number
+        my_name:
+          type: string
+        drinker_name:
+          type: string
+      additionalProperties: false
+    FieldsBody:
+      type: object
+      required:
+        - fields
+      properties:
+        fields:
+          $ref: "#/components/schemas/FieldUpdates"
+      additionalProperties: false
+    FavoriteBody:
+      type: object
+      required:
+        - reference
+      properties:
+        reference:
+          type: boolean
+      additionalProperties: false
+paths:
+  "/dye-gpt/api/schema":
+    get:
+      operationId: getDyeSchema
+      summary: Get editable DYE field schema
+      responses:
+        "200":
+          description: Field schema.
+  "/dye-gpt/api/shots":
+    get:
+      operationId: listDyeShots
+      summary: List shot history
+      responses:
+        "200":
+          description: Shot list.
+  "/dye-gpt/api/shots/{clock}":
+    get:
+      operationId: getDyeShot
+      summary: Get shot details, metadata, and chart series
+      parameters:
+        - name: clock
+          in: path
+          required: true
+          description: Unique shot id from listDyeShots.
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Shot details with fields and chart series.
+  "/dye-gpt/api/next":
+    get:
+      operationId: getDyeNextShot
+      summary: Get the planned Next Shot DYE fields
+      responses:
+        "200":
+          description: Next Shot details.
+    patch:
+      operationId: updateDyeNextShotFields
+      summary: Update editable DYE fields on the planned Next Shot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FieldsBody"
+      responses:
+        "200":
+          description: Updated Next Shot details.

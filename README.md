@@ -87,7 +87,7 @@ http://<tablet-ip>:8787/
 For example:
 
 ```text
-http://10.0.0.76:8787/
+http://192.168.1.42:8787/
 ```
 
 You can usually find the tablet IP address in Android Wi-Fi settings, your router's device list, or any network scanner app.
